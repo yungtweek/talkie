@@ -17,6 +17,7 @@ import { SESSION_PUBSUB } from '@/modules/infra/pubsub/pubsub.module';
 import { z } from 'zod';
 import type { AuthUser } from '@/modules/auth/current-user.decorator';
 import { SessionEventType } from '@/modules/chat/gql/chat.session.resolver';
+import { OutboxRepository } from '@/modules/infra/outbox/outbox.repository';
 
 const StreamEventSchema = z
   .object({
@@ -52,6 +53,7 @@ export class ChatService {
   constructor(
     private readonly kafka: KafkaService,
     private readonly chatRepo: ChatRepository,
+    private readonly outboxRepo: OutboxRepository,
     @Inject(SESSION_PUBSUB) private readonly pubSub: PubSubEngine,
   ) {
     this.redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379');
@@ -93,23 +95,18 @@ export class ChatService {
         sessionId,
         message: dto.message,
       };
-      // this.logger.debug('titlePayload', titlePayload);
-      try {
-        await this.kafka.produce('chat.title.generate', titlePayload, traceId);
-      } catch {
-        await this.chatRepo.insertOutbox('chat.title.generate', traceId, titlePayload);
-      }
+      await this.outboxRepo.insertOutbox({
+        jobId,
+        topic: 'chat.title.generate',
+        payload: titlePayload,
+      });
     }
 
-    try {
-      // Publish main chat request to Kafka worker
-      await this.kafka.produce('chat.request', payload, jobId);
-      // (선택) jobs.status='processing' 으로 업데이트 가능
-    } catch {
-      // On failure, push to outbox for later retry
-      await this.chatRepo.insertOutbox('chat.request', jobId, payload);
-      // (선택) jobs.status='queued' 유지
-    }
+    await this.outboxRepo.insertOutbox({
+      jobId,
+      topic: 'chat.request',
+      payload,
+    });
 
     return { sessionId, jobId };
   }

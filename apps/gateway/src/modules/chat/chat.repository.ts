@@ -132,25 +132,6 @@ export class ChatRepository {
   }
 
   /**
-   * Insert an event into the outbox table (for async dispatch).
-   * @returns numeric outbox id for traceability
-   */
-  async insertOutbox(topic: string, key: string | null, payload: unknown) {
-    const sql = `
-      INSERT INTO outbox (topic, key, payload_json)
-      VALUES ($1, $2, $3::jsonb)
-      RETURNING id
-    `;
-    const { rows } = await this.pool.query(sql, [
-      topic,
-      key ?? null,
-      JSON.stringify(payload ?? {}),
-    ]);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    return rows[0].id as number;
-  }
-
-  /**
    * Paginated messages for a session.
    * - Caller must ensure ownership before calling this method.
    * - Supports `before` (message_index) keyset pagination.
