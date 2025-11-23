@@ -48,13 +48,19 @@ export class OutboxRepository {
   }
   async lockPendingBatch(limit: number): Promise<OutboxRow[]> {
     const sql = `
-      SELECT id, topic, key, payload_json, job_id
-      FROM outbox
-      WHERE status = 'pending'
-        AND next_attempt_at <= now()
-      ORDER BY next_attempt_at, id
-      LIMIT $1
-      FOR UPDATE SKIP LOCKED
+      UPDATE outbox
+      SET status = 'publishing',
+          last_attempt_at = now()
+      WHERE id IN (
+        SELECT id
+        FROM outbox
+        WHERE status IN ('pending', 'failed')
+          AND next_attempt_at <= now()
+        ORDER BY next_attempt_at, id
+        LIMIT $1
+          FOR UPDATE SKIP LOCKED
+      )
+      RETURNING id, topic, key, payload_json, job_id
     `;
     const { rows } = await this.pool.query<OutboxRow>(sql, [limit]);
     return rows;
@@ -76,11 +82,19 @@ export class OutboxRepository {
 
     const sql = `
       UPDATE outbox
-      SET status         = CASE WHEN retry_count + 1 >= 5 THEN 'dead_lettered' ELSE 'failed' END,
-          retry_count    = retry_count + 1,
-          last_error     = $2,
-          last_attempt_at = now(),
-          next_attempt_at = now() + interval '30 seconds'
+      SET
+        retry_count     = retry_count + 1,
+        status          = CASE
+                            WHEN retry_count + 1 >= 5 THEN 'dead_lettered'
+                            ELSE 'failed'
+          END,
+        last_error      = $2,
+        last_attempt_at = now(),
+        next_attempt_at = CASE
+                            WHEN retry_count + 1 >= 5
+                              THEN next_attempt_at      -- dead_lettered면 더 이상 안 씀
+                            ELSE now() + (interval '30 seconds' * (retry_count + 1))
+          END
       WHERE id = $1
     `;
     await this.pool.query(sql, [id, message]);
