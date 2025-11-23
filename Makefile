@@ -53,12 +53,6 @@ worker-chat:
 	set -a && source apps/workers/chat_worker/.env.local && set +a && \
 	python -m chat_worker.main 2>&1
 
-worker-title:
-	@echo "🚀  Starting Chat Worker (package=title_worker)..."
-	@. .venv/bin/activate && \
-	export PYTHONPATH=$$(pwd)/apps/workers && \
-	python -m title_worker.main 2>&1
-
 worker-index:
 	@echo "🚀  Starting Chat Worker (package=title_worker)..."
 	@. .venv/bin/activate && \

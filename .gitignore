@@ -27,6 +27,10 @@ build/
 coverage/
 *.tsbuildinfo
 
+# Ignore accidental JS build outputs in src folders
+**/src/**/*.js
+**/src/**/*.js.map
+
 # Docker / Compose volumes
 infra/docker/volumes
 infra/docker/volumes/**
