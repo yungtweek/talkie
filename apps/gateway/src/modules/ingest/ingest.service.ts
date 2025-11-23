@@ -20,6 +20,7 @@ import {
   topicForUserFiles,
 } from '@talkie/events-contracts';
 import { channel } from 'node:diagnostics_channel';
+import { OutboxRepository } from '@/modules/infra/outbox/outbox.repository';
 
 /** Core service for file ingest flows (create, list, mark deleting, enqueue jobs). */
 @Injectable()
@@ -28,6 +29,7 @@ export class IngestService {
   private redis: Redis;
   constructor(
     private readonly ingestRepo: IngestRepository,
+    private readonly outboxRepo: OutboxRepository,
     private readonly kafka: KafkaService,
   ) {
     this.redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379');
@@ -117,8 +119,11 @@ export class IngestService {
       }
       const channel = topicForUserFiles(userId);
       await this.redis.publish(channel, JSON.stringify(ok.data));
-      // Produce job for background worker (idempotent by jobId)
-      await this.kafka.produce('ingest.request', payload, jobId);
+      await this.outboxRepo.insertOutbox({
+        jobId,
+        topic: 'ingest.request',
+        payload,
+      });
     }
 
     // Return lightweight status+timestamp update for clients
@@ -204,8 +209,11 @@ export class IngestService {
       ts: Date.now(),
     };
     await this.redis.publish(topicForUserFiles(input.userId), JSON.stringify(redisEvent));
-    // Publish delete request to worker topic
-    await this.kafka.produce('ingest.delete', payload, jobId);
+    await this.outboxRepo.insertOutbox({
+      jobId,
+      topic: 'ingest.delete',
+      payload,
+    });
     // Return job handle to the caller for SSE follow-up
     return jobId;
   }

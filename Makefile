@@ -59,8 +59,6 @@ worker-title:
 	export PYTHONPATH=$$(pwd)/apps/workers && \
 	python -m title_worker.main 2>&1
 
-
-
 worker-index:
 	@echo "🚀  Starting Chat Worker (package=title_worker)..."
 	@. .venv/bin/activate && \
