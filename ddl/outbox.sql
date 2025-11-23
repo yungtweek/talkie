@@ -6,6 +6,10 @@ DROP TABLE IF EXISTS outbox;
 CREATE TABLE IF NOT EXISTS outbox
 (
     id               bigserial PRIMARY KEY,
+
+    -- correlation
+    job_id           uuid,
+
     topic            text        NOT NULL,
     key              text,
     payload_json     jsonb       NOT NULL,
@@ -18,7 +22,7 @@ CREATE TABLE IF NOT EXISTS outbox
     -- retry / scheduling
     retry_count      int         NOT NULL DEFAULT 0
         CHECK (retry_count BETWEEN 0 AND 100),
-    next_attempt_at  timestamptz,
+    next_attempt_at  timestamptz NOT NULL DEFAULT now(),
     last_attempt_at  timestamptz,
 
     -- timestamps / diagnostics
@@ -28,8 +32,8 @@ CREATE TABLE IF NOT EXISTS outbox
 );
 
 -- Partial unique index so multiple NULLs are allowed
-CREATE UNIQUE INDEX IF NOT EXISTS ux_outbox_idempotency
-    ON outbox (idempotency_key)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_outbox_topic_idempotency
+    ON outbox (topic, idempotency_key)
     WHERE idempotency_key IS NOT NULL;
 
 -- Scheduler-friendly scan (pending & due)
@@ -45,6 +49,10 @@ CREATE INDEX IF NOT EXISTS idx_outbox_failed
 -- Operational lookup by topic
 CREATE INDEX IF NOT EXISTS idx_outbox_topic_created
     ON outbox (topic, created_at DESC);
+
+-- Lookup by job (debugging/GC)
+CREATE INDEX IF NOT EXISTS idx_outbox_job_created
+    ON outbox (job_id, created_at DESC);
 
 -- --------------------------------------------
 -- Recommended: Transaction Example (for reference)

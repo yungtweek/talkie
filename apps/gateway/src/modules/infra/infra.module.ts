@@ -5,6 +5,7 @@ import { ObjectStorageModule } from '@/modules/infra/object-storage/object-stora
 import { GraphqlModule } from '@/modules/infra/graphql/graphql.module';
 import { PubSubModule } from '@/modules/infra/pubsub/pubsub.module';
 import { DatabaseModule } from '@/modules/infra/database/database.module';
+import { OutboxModule } from '@/modules/infra/outbox/outbox.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { DatabaseModule } from '@/modules/infra/database/database.module';
     ObjectStorageModule,
     GraphqlModule,
     PubSubModule,
+    OutboxModule,
   ],
   exports: [
     DatabaseModule,
@@ -20,6 +22,7 @@ import { DatabaseModule } from '@/modules/infra/database/database.module';
     ObjectStorageModule,
     GraphqlModule,
     PubSubModule,
+    OutboxModule,
   ],
 })
 export class InfraModule {}
