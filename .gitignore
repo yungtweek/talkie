@@ -52,3 +52,6 @@ docs/todo/
 Features_20251020.md
 /talkie.iml
 /.envrc
+/tools/
+/tools/streamlit/.streamlit/
+/.fleet/settings.json
