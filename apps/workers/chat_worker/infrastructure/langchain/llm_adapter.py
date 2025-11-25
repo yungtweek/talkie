@@ -1,18 +1,41 @@
-# apps/workers/chat_worker/infrastructure/langchain/llm_adapter.py
 from __future__ import annotations
+import inspect
+import asyncio
 
-from typing import List, AsyncIterator
+from typing import List, Any
 
-import anyio
+from charset_normalizer.md import getLogger
 from langchain_core.messages import BaseMessage
-from langchain_core.outputs import ChatResult
 from langchain_core.runnables import RunnableConfig
 
-from chat_worker.domain.ports.llm import LlmPort
-from chat_worker.settings import Settings
-from chat_worker.infrastructure.langchain.openai_client import get_llm  # 지금은 OpenAI / 나중에 vLLM 쪽으로 교체 가능
+logger = getLogger(str(__name__))
 
-_settings = Settings()
+
+def _extract_configurable_kwargs(
+        config: RunnableConfig | dict | None,
+) -> tuple[dict, RunnableConfig | dict | None]:
+    if config is None:
+        return {}, None
+
+    if isinstance(config, dict):
+        cfg = config.get("configurable") or {}
+    else:
+        cfg = getattr(config, "configurable", {}) or {}
+
+    kwargs: dict = {}
+    # Map configurable keys to runtime kwargs understood by OpenAI-like clients
+    for key in (
+            "model",
+            "temperature",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+    ):
+        if key in cfg and cfg[key] is not None:
+            kwargs[key] = cfg[key]
+
+    return kwargs, config
 
 
 class LangchainLlmAdapter:
@@ -22,23 +45,9 @@ class LangchainLlmAdapter:
     Can be replaced with vLLM or fallback client without changing domain code.
     """
 
-    def __init__(
-            self,
-            model: str | None = None,
-            temperature: float | None = None,
-            timeout_s: int | None = None,
-    ) -> None:
-        self.model = model or _settings.LLM_MODEL
-        self.temperature = temperature if temperature is not None else _settings.LLM_TEMPERATURE
-        self.timeout_s = timeout_s if timeout_s is not None else _settings.LLM_TIMEOUT_S
-
-    async def _get_llm(self):
-        # Currently returns OpenAI client; can be swapped with vLLM or fallback client.
-        return await get_llm(
-            model=self.model,
-            temperature=self.temperature,
-            timeout_s=self.timeout_s,
-        )
+    def __init__(self, llm: Any) -> None:
+        """Wrap a LangChain-compatible LLM client (e.g., ChatOpenAI, VllmGrpcClient, etc.)."""
+        self._llm = llm
 
     async def ainvoke(
             self,
@@ -46,28 +55,61 @@ class LangchainLlmAdapter:
             config: RunnableConfig | None = None,
     ) -> BaseMessage:
         """Non-streaming ChatCompletion using LangChain ainvoke."""
-        llm = await self._get_llm()
-
-        if config is None:
+        kwargs, cfg = _extract_configurable_kwargs(config)
+        if cfg is None:
             # Default behavior when no config is provided
-            return await llm.ainvoke(messages)
+            return await self._llm.ainvoke(messages, **kwargs)
         else:
-            # Explicit config passthrough
-            return await llm.ainvoke(messages, config)
+            # Explicit config passthrough + runtime overrides
+            return await self._llm.ainvoke(messages, config=cfg, **kwargs)
 
     async def astream(
             self,
             messages: List[BaseMessage],
             config: RunnableConfig | None = None,
-    ) -> None:
+    ):
         """Streaming ChatCompletion wrapper that forwards chunks via LangChain callbacks."""
-        llm = await self._get_llm()
+        logger.debug("Streaming ChatCompletion", extra={"messages": messages})
+        kwargs, cfg = _extract_configurable_kwargs(config)
 
-        if config is None:
-            astream = llm.astream(messages)
+        # Call backend .astream and support both:
+        # 1) async iterator directly
+        # 2) coroutine that resolves to an async iterator
+        if cfg is None:
+            stream_or_coro = self._llm.astream(messages, **kwargs)
         else:
-            astream = llm.astream(messages, config)
+            stream_or_coro = self._llm.astream(messages, config=cfg, **kwargs)
+
+        if inspect.iscoroutine(stream_or_coro):
+            astream = await stream_or_coro
+        else:
+            astream = stream_or_coro
 
         async for _chunk in astream:
             # Token delivery is handled by TokenStreamCallback.on_llm_new_token
             continue
+
+    def stream(
+            self,
+            messages: List[BaseMessage],
+            config: RunnableConfig | None = None,
+    ):
+        """
+        UI-facing streaming interface.
+
+        Returns a stream/generator that, when iterated:
+          - Calls the underlying LLM `.stream`,
+          - Triggers LangChain token callbacks,
+          - Produces chunks for the UI.
+
+        Designed to be called synchronously (e.g., Streamlit `write_stream`).
+        """
+        logger.debug("UI Streaming ChatCompletion", extra={"messages": messages})
+        kwargs, cfg = _extract_configurable_kwargs(config)
+
+        if cfg is None:
+            stream = self._llm.stream(messages, **kwargs)
+        else:
+            stream = self._llm.stream(messages, config=cfg, **kwargs)
+
+        return stream

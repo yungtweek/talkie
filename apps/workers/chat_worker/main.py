@@ -20,7 +20,9 @@ from chat_worker.application.services.chat_history_service import ChatHistorySer
 from chat_worker.application.services.chat_llm_service import ChatLLMService
 from chat_worker.application.services.chat_title_service import ChatTitleService
 from chat_worker.infrastructure.db.pool_factory import create_pg_pool
+from chat_worker.infrastructure.langchain.llm_adapter import LangchainLlmAdapter
 from chat_worker.infrastructure.langchain.vllm_client import get_llm as get_vllm_llm
+from chat_worker.infrastructure.langchain.openai_client import get_llm as get_openai_llm
 from chat_worker.infrastructure.langchain.weaviate_client import get_client
 from chat_worker.infrastructure.repo.postgres_chat_repo import PostgresChatRepo
 from chat_worker.infrastructure.repo.postgres_history_repo import PostgresHistoryRepository
@@ -48,7 +50,8 @@ logging.basicConfig(
 )
 
 # Tone down noisy third‑party loggers
-for noisy in ("aiokafka", "urllib3", "asyncio", "botocore", "httpcore", "httpx", "s3transfer", "boto3", "openai._base_client"):
+for noisy in ("aiokafka", "urllib3", "asyncio", "botocore", "httpcore", "httpx", "s3transfer", "boto3",
+              "openai._base_client"):
     logging.getLogger(noisy).setLevel(settings.NOISY_LEVEL)
 
 if settings.OPENAI_API_KEY:
@@ -57,7 +60,7 @@ if settings.OPENAI_API_KEY:
 BOOTSTRAP = settings.KAFKA_BOOTSTRAP
 REDIS_URL = settings.REDIS_URL
 CHAT_REQ_TOPIC = "chat.request"
-TITLE_REQ_TOPIC= "chat.title.generate"
+TITLE_REQ_TOPIC = "chat.title.generate"
 RES_PREFIX = "chat.response."
 
 shutdown_event = asyncio.Event()  # 👈 shutdown signal
@@ -96,7 +99,9 @@ async def main():
     chat_repo = PostgresChatRepo(pool)
     history_repo = PostgresHistoryRepository(pool)
     session_repo = PostgresChatSessionRepo(pool)
-    llm_client = await get_vllm_llm() # await get_openai_llm()
+    llm_client = await get_vllm_llm()  # await get_openai_llm()
+    # llm_client = await get_openai_llm()
+    llm_adapter = LangchainLlmAdapter(llm_client)
 
     # Warm-up/health probe (optional)
     r = await redis.info()
@@ -115,15 +120,16 @@ async def main():
     embeddings = OpenAIEmbeddings(model=settings.EMBEDDING_MODEL)
     pipeline = RagPipeline(
         settings=settings.RAG,  # ← inject sub-config explicitly
-        client=weaviate_client,     # (optional) v4 client
-        embeddings=embeddings,      # (optional) embeddings
+        client=weaviate_client,  # (optional) v4 client
+        embeddings=embeddings,  # (optional) embeddings
         text_key="text"
     )
     rag_chain = pipeline.build()  # 🔁 build once; reuse per request
 
     history_service = ChatHistoryService(history_repo, system_prompt, settings.MAX_CTX_TOKENS)
-    title_service = ChatTitleService(session_repo, llm_client, xadd_session_event)
-    llm_service = ChatLLMService(settings, history_service, stream_service, chat_repo, metrics_repo, rag_chain, llm_client, llm_runner)
+    title_service = ChatTitleService(session_repo, llm_adapter, xadd_session_event)
+    llm_service = ChatLLMService(settings, history_service, stream_service, chat_repo, metrics_repo, rag_chain,
+                                 llm_adapter, llm_runner)
     await consumer.start()
     await producer.start()
     print("🏁 Worker started. Press Ctrl+C to stop.")
@@ -152,8 +158,9 @@ async def main():
                 try:
                     value = msg.value
                     if value is None:
-                        log.error("❌ Received Kafka message with empty value: key=%s, topic=%s, partition=%s, offset=%s",
-                                  msg.key, msg.topic, msg.partition, msg.offset)
+                        log.error(
+                            "❌ Received Kafka message with empty value: key=%s, topic=%s, partition=%s, offset=%s",
+                            msg.key, msg.topic, msg.partition, msg.offset)
                         continue
                     req = ChatRequest.model_validate_json(value.decode())
                 except Exception as e:
@@ -177,6 +184,7 @@ async def main():
                 except Exception as e:
                     print(f"❌ bad payload: {e}")
                     continue
+
                 async def _run_title(title_req: TitleRequest):
                     async with TITLE_SEM:
                         await title_service.generate_title(title_req)

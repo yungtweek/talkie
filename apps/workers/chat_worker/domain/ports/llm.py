@@ -8,16 +8,16 @@ from langchain_core.runnables import RunnableConfig
 
 class LlmPort(Protocol):
     """
-    도메인에서 사용하는 LLM 포트.
+    LLM port used in the domain layer.
 
-    단발 응답(chat)과 스트리밍(chat_stream) 둘 다 지원.
-    RAG는 이 포트를 통해 LLM만 호출하면 됨.
+    Supports both single response (`chat`) and streaming (`chat_stream`).
+    RAG logic should call the LLM only through this port.
     """
 
     async def ainvoke(self, messages: List[BaseMessage], config: RunnableConfig | None = None, ) -> BaseMessage:
-        """일반 ChatCompletion 요청."""
+        """Standard ChatCompletion request (single response)."""
         ...
 
     async def astream(self, messages: List[BaseMessage], config: RunnableConfig | None = None, ) -> None:
-        """스트리밍 ChatCompletion (deltaText 단위로 yield)."""
+        """Streaming ChatCompletion (yields deltaText chunks)."""
         ...
