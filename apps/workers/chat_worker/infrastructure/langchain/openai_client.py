@@ -4,7 +4,7 @@ import asyncio
 from typing import Dict, Tuple, Optional, Iterable, Any
 
 from langchain_openai import ChatOpenAI  # LangChain 0.2+ 권장
-from chat_worker.settings import Settings
+from apps.workers.chat_worker.settings import Settings
 
 _settings = Settings()
 _lock = asyncio.Lock()

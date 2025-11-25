@@ -68,24 +68,50 @@ class VllmGrpcClient:
 
         return self._stub
 
+    def _build_request(
+            self,
+            system_prompt: str,
+            user_prompt: str,
+            config: RunnableConfig | None,
+            **kwargs: Any,
+    ) -> llm_pb2.ChatCompletionRequest:
+        if config is None:
+            cfg: dict[str, Any] = {}
+        else:
+            if isinstance(config, dict):
+                cfg = config.get("configurable", {}) or {}
+            else:
+                cfg = getattr(config, "configurable", {}) or {}
+
+        # Merge runtime kwargs on top of configurable; kwargs take precedence.
+        params: dict[str, Any] = dict(cfg)
+        params.update(kwargs)
+
+        model = params.get("model", self.model)
+        temperature = params.get("temperature", _settings.LLM_TEMPERATURE)
+        max_tokens = params.get("max_tokens", _settings.LLM_MAX_TOKENS)
+        top_p = params.get("top_p", _settings.LLM_TOP_P)
+
+        return llm_pb2.ChatCompletionRequest(
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            context="",
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+        )
+
     async def ainvoke(
             self,
             messages: List[BaseMessage],
             config: RunnableConfig | None = None,
+            **kwargs: Any,
     ) -> AIMessage:
         """Unary ChatCompletion request."""
         stub = await self._get_stub()
         system_prompt, user_prompt = _messages_to_prompts(messages)
-
-        req = llm_pb2.ChatCompletionRequest(
-            model=self.model,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            context="",
-            temperature=_settings.LLM_TEMPERATURE,
-            max_tokens=_settings.LLM_MAX_TOKENS,
-            top_p=_settings.LLM_TOP_P,
-        )
+        req = self._build_request(system_prompt, user_prompt, config, **kwargs)
 
         timeout_s = (self.timeout_ms or _settings.LLM_TIMEOUT_MS) / 1000.0
 
@@ -99,20 +125,13 @@ class VllmGrpcClient:
             self,
             messages: List[BaseMessage],
             config: RunnableConfig | None = None,
+            **kwargs: Any,
     ) -> None:
         """Server‑streaming ChatCompletion that forwards chunks into LangChain callbacks."""
+        logger.debug("Streaming ChatCompletion", extra={"messages": messages})
         stub = await self._get_stub()
         system_prompt, user_prompt = _messages_to_prompts(messages)
-
-        req = llm_pb2.ChatCompletionRequest(
-            model=self.model,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            context="",
-            temperature=_settings.LLM_TEMPERATURE,
-            max_tokens=_settings.LLM_MAX_TOKENS,
-            top_p=_settings.LLM_TOP_P,
-        )
+        req = self._build_request(system_prompt, user_prompt, config, **kwargs)
 
         timeout_s = (self.timeout_ms or _settings.LLM_TIMEOUT_MS) / 1000.0
         callbacks = []
@@ -170,7 +189,11 @@ async def get_llm(
     m = model or _settings.LLM_DEFAULT_MODEL
     # Temperature is ignored for now, kept for API compatibility
     _ = temperature
-    to_ms = (timeout_s or _settings.LLM_TIMEOUT_MS)
+    if timeout_s is not None:
+        # Convert seconds to milliseconds for the internal timeout value
+        to_ms = int(timeout_s * 1000)
+    else:
+        to_ms = _settings.LLM_TIMEOUT_MS
 
     logger.info("vLLM gRPC client config", extra={
         "addr": addr,
