@@ -138,15 +138,6 @@ func (s *LLMService) ChatCompletionStream(req *pb.ChatCompletionRequest, stream 
 		}
 	}
 
-	if logger.Log != nil {
-		logger.Log.Debug("ChatCompletionStream request",
-			zap.String("model", req.Model),
-			zap.String("system_prompt", req.SystemPrompt),
-			zap.String("user_prompt", req.UserPrompt),
-			zap.Bool("has_context", req.Context != ""),
-		)
-	}
-
 	// Build user message including optional RAG context.
 	userContent := req.UserPrompt
 	if req.Context != "" {
@@ -165,16 +156,17 @@ func (s *LLMService) ChatCompletionStream(req *pb.ChatCompletionRequest, stream 
 		Stream:      true,
 	}
 
+	if logger.Log != nil {
+		logger.Log.Debug("vLLM ChatCompletionStream vReq",
+			zap.String("model", vReq.Model),
+			zap.Any("temperature", vReq.Temperature),
+			zap.Any("max_tokens", vReq.MaxTokens),
+			zap.Any("top_p", vReq.TopP),
+		)
+	}
+
 	// Stream chunks from vLLM to the gRPC client.
 	err := s.client.ChatStream(stream.Context(), vReq, func(chunk vllm.ChatCompletionStreamChunk) error {
-		if logger.Log != nil {
-			logger.Log.Debug("ChatCompletionStream chunk",
-				zap.String("model", req.Model),
-				zap.String("delta_text", chunk.DeltaText),
-				zap.String("finish_reason", chunk.FinishReason),
-			)
-		}
-
 		resp := &pb.ChatCompletionChunkResponse{
 			DeltaText:        chunk.DeltaText,
 			FinishReason:     chunk.FinishReason,

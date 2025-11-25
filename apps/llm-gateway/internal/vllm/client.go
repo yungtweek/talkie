@@ -166,13 +166,6 @@ func (c *Client) ChatStream(ctx context.Context, req ChatCompletionRequest, onCh
 			TotalTokens:      raw.Usage.TotalTokens,
 		}
 
-		if logger.Log != nil {
-			logger.Log.Debug("vLLM ChatStream chunk",
-				zap.String("delta_text", chunk.DeltaText),
-				zap.String("finish_reason", chunk.FinishReason),
-			)
-		}
-
 		if err := onChunk(chunk); err != nil {
 			logger.Log.Warn("ChatStream callback returned error", zap.Error(err))
 			return err
