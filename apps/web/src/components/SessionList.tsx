@@ -1,5 +1,4 @@
 'use client';
-import styles from './SessionList.module.scss';
 
 import React, { useEffect, useState } from 'react';
 import { clsx } from 'clsx';
@@ -64,39 +63,47 @@ export default function SessionList() {
   }, [data?.chatSessionList.edges]);
 
   return (
-    <div className={styles.list_wrapper}>
-      <ul className={styles.list}>
-        <li className={styles.list_item}>
+    <div className="flex h-full flex-col gap-2 overflow-hidden px-4">
+      <ul className="flex flex-col gap-2 overflow-auto p-2">
+        <li className="relative inline-flex h-fit cursor-pointer justify-center rounded-lg">
           <Link
             href={'/chat'}
             onClick={() => {
               setSelectedSessionId(null);
             }}
             title={'New Chat'}
-            className={pathname === '/chat' ? styles.selected : ''}
+            className={clsx(
+              'block min-w-0 self-center overflow-hidden text-ellipsis whitespace-nowrap p-2',
+              pathname === '/chat' && 'cursor-default font-medium bg-white/10'
+            )}
           >
             New Chat
           </Link>
         </li>
-        <li className={styles.list_item}>
+        <li className="relative inline-flex h-fit cursor-pointer justify-center rounded-lg">
           <Link
             href={'/documents'}
             onClick={() => {
               setSelectedSessionId(null);
             }}
             title={'Documents'}
-            className={pathname === '/documents' ? styles.selected : ''}
+            className={clsx(
+              'block min-w-0 self-center overflow-hidden text-ellipsis whitespace-nowrap p-2',
+              pathname === '/documents' && 'cursor-default font-medium bg-white/10'
+            )}
           >
             Documents
           </Link>
         </li>
       </ul>
       <h3>Chats 💬</h3>
-      <ul className={clsx(styles.list, styles.session)}>
+      <ul className={clsx('flex flex-1 flex-col gap-2 overflow-auto p-2')}>
         {data?.chatSessionList.edges.map(edge => (
           <li
             key={edge.node.id}
-            className={clsx(styles.list_item)}
+            className={clsx(
+              'relative inline-flex h-fit justify-center rounded-lg hover:bg-white/10'
+            )}
             onMouseEnter={() => setHoverId(edge.node.id)}
             onMouseLeave={() => {
               setHoverId(null);
@@ -105,7 +112,10 @@ export default function SessionList() {
           >
             <Link
               href={`/chat/${edge.node.id}`}
-              className={clsx([selectedSessionId === edge.node.id ? styles.selected : ''])}
+              className={clsx(
+                'block min-w-0 self-center overflow-hidden text-ellipsis whitespace-nowrap p-2',
+                selectedSessionId === edge.node.id && 'cursor-default font-medium bg-white/10'
+              )}
               onClick={() => {
                 if (selectedSessionId === edge.node.id) return;
                 setSelectedSessionId(edge.node.id);
@@ -116,10 +126,16 @@ export default function SessionList() {
             >
               {edge.node.title?.replace(/"/g, '') ?? (
                 <>
-                  <div className={styles.typingDots}>
-                    <span>.</span>
-                    <span>.</span>
-                    <span>.</span>
+                  <div className="inline-flex gap-1">
+                    <span className="inline-block animate-bounce" style={{ animationDelay: '0ms' }}>
+                      .
+                    </span>
+                    <span className="inline-block animate-bounce" style={{ animationDelay: '200ms' }}>
+                      .
+                    </span>
+                    <span className="inline-block animate-bounce" style={{ animationDelay: '400ms' }}>
+                      .
+                    </span>
                   </div>
                 </>
               )}
@@ -127,7 +143,9 @@ export default function SessionList() {
 
             {hoverId === edge.node.id && (
               <button
-                className={styles.moreBtn}
+                className={
+                  'h-full w-12 self-center rounded-lg p-2 text-foreground hover:bg-white/10'
+                }
                 onClick={() => {
                   setOpenId(edge.node.id);
                 }}
@@ -137,9 +155,15 @@ export default function SessionList() {
             )}
 
             {openId === edge.node.id && (
-              <div className={styles.moreMenu}>
+              <div
+                className={
+                  'absolute right-0 top-full z-10 rounded-md border border-border bg-background p-1 shadow-md'
+                }
+              >
                 <button
-                  className={styles.deleteBtn}
+                  className={
+                    'block w-full cursor-pointer rounded-md px-3 py-1.5 text-left text-[--danger-fg] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:color-mix(in_srgb,var(--danger-fg)_40%,transparent)]'
+                  }
                   onClick={() => {
                     const wasCurrent = selectedSessionId === edge.node.id;
                     void deleteSession(edge.node.id);

@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { clsx } from 'clsx';
-import styles from '@/components/chat/ChatSession.module.scss';
 import ChatMessage from '@/components/chat/ChatMessage';
 import { useSessionsState } from '@/features/chat/chat.sessions.store';
 import { useChatSessionStream } from '@/features/chat/useChatSessionStream';
@@ -43,8 +42,11 @@ export default function MessagesPane() {
   })();
 
   return (
-    <div className={clsx(styles.conversation)} ref={containerRef}>
-      <ul className={clsx(styles.stack)}>
+    <div
+      className={clsx('h-full min-h-0 w-full flex-1 overflow-auto max-w-4xl px-4 mx-auto')}
+      ref={containerRef}
+    >
+      <ul className={clsx('flex min-h-full list-none flex-col gap-9 pb-24')}>
         <>
           {messages.map((chat, i) => (
             <ChatMessage

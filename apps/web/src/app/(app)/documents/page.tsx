@@ -1,5 +1,4 @@
 'use client';
-import styles from '@/app/(app)/documents/page.module.scss';
 import type { ApolloCache } from '@apollo/client';
 import React, { useEffect, useCallback } from 'react';
 import FileUploader from '@/components/documents/FileUploader';
@@ -103,31 +102,41 @@ export default function DocumentsPage() {
 
   return (
     <>
-      <div style={{ padding: '0 1.7rem' }}>
-        <h1 style={{ padding: '8px 0' }}>Documents</h1>
+      <div className="px-7">
+        <h1 className="py-2 text-xl font-semibold">Documents</h1>
         <div>
           <FileUploader />
         </div>
         <div>
           <ul>
-            <div className={styles.tableCard}>
-              <div className={styles.tableHeader}>
-                <h3>{data?.files.edges.length ?? 0} files</h3>
-                <div className={styles.headerActions}>
+            <div className="mt-3 rounded-xl border border-border bg-white/70 p-4 shadow-sm backdrop-blur-sm dark:bg-white/5">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="m-0 text-sm font-semibold text-muted-foreground">
+                  {data?.files.edges.length ?? 0} files
+                </h3>
+                <div className="flex gap-2">
                   {/*<button type="button" className={styles.btnGhost} onClick={() => null}>*/}
                   {/*  refresh*/}
                   {/*</button>*/}
                 </div>
               </div>
 
-              <table className={styles.table}>
+              <table className="w-full border-separate border-spacing-0">
                 <thead>
                   <tr>
-                    <th>Filename</th>
-                    <th>Size</th>
-                    <th>Status</th>
-                    <th>Visibility</th>
-                    <th></th>
+                    <th className="border-b border-border px-3 py-2.5 text-center text-xs font-semibold text-muted-foreground">
+                      Filename
+                    </th>
+                    <th className="border-b border-border px-3 py-2.5 text-center text-xs font-semibold text-muted-foreground">
+                      Size
+                    </th>
+                    <th className="border-b border-border px-3 py-2.5 text-center text-xs font-semibold text-muted-foreground">
+                      Status
+                    </th>
+                    <th className="border-b border-border px-3 py-2.5 text-center text-xs font-semibold text-muted-foreground">
+                      Visibility
+                    </th>
+                    <th className="border-b border-border px-3 py-2.5" />
                   </tr>
                 </thead>
                 <tbody>
@@ -143,7 +152,7 @@ export default function DocumentsPage() {
                   ))}
                   {!data?.files.edges.length && (
                     <tr>
-                      <td colSpan={5} className={styles.emptyCell}>
+                      <td colSpan={5} className="py-6 text-center text-neutral-400">
                         업로드된 파일이 없습니다.
                       </td>
                     </tr>
