@@ -5,6 +5,7 @@ import type { FileVisibility as FileVisibilityT } from '@/gql/graphql';
 import { FileStatus, FileVisibility } from '@talkie/types-zod';
 import { useFragment } from '@apollo/client/react';
 import { formatBytes } from '@/lib/format';
+import { TableCell, TableRow } from '@/components/ui/table';
 
 // ---- UI helpers (module-level to avoid re-creation per render) ----
 const renderStatus = (status: FileStatus) => {
@@ -51,13 +52,16 @@ const FileItem: React.FC<{
   const status = data.status;
 
   return (
-    <tr>
-      <td className="max-w-[420px] overflow-hidden text-ellipsis whitespace-nowrap" title={data.filename}>
+    <TableRow>
+      <TableCell
+        className="max-w-[420px] overflow-hidden text-ellipsis whitespace-nowrap"
+        title={data.filename}
+      >
         {data.filename}
-      </td>
-      <td style={{ textAlign: 'center', width: 150 }}>{renderStatus(status)}</td>
-      <td style={{ textAlign: 'center', width: 90 }}>{formatBytes(data.size)}</td>
-      <td style={{ textAlign: 'center', width: 120 }}>
+      </TableCell>
+      <TableCell className="w-[150px] text-center">{renderStatus(status)}</TableCell>
+      <TableCell className="w-[90px] text-center">{formatBytes(data.size)}</TableCell>
+      <TableCell className="w-[120px] text-center">
         <button
           type="button"
           className="bg-transparent p-0"
@@ -68,12 +72,12 @@ const FileItem: React.FC<{
         >
           {renderVisibility(data.visibility)}
         </button>
-      </td>
-      <td className="w-px whitespace-nowrap text-right">
+      </TableCell>
+      <TableCell className="w-px whitespace-nowrap text-right">
         <button
           type="button"
           className={
-            'rounded-md border border-[color:var(--danger-border)] bg-[var(--danger-bg)] px-2.5 py-2 text-sm font-medium text-[var(--danger-fg)] hover:border-[color:var(--danger-strong-border)]'
+            'rounded-md border border-(--danger-border) bg-(--danger-bg) px-2.5 py-2 text-sm font-medium text-(--danger-fg) hover:border-(--danger-strong-border)'
           }
           onClick={() => {
             void onDelete(id);
@@ -82,8 +86,8 @@ const FileItem: React.FC<{
         >
           DELETE
         </button>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 };
 

@@ -42,26 +42,25 @@ export default function MessagesPane() {
   })();
 
   return (
-    <div
-      className={clsx('h-full min-h-0 w-full flex-1 overflow-auto max-w-4xl px-4 mx-auto')}
-      ref={containerRef}
-    >
-      <ul className={clsx('flex min-h-full list-none flex-col gap-9 pb-24')}>
-        <>
-          {messages.map((chat, i) => (
-            <ChatMessage
-              chat={chat}
-              key={i}
-              showDots={
-                isStreamingNow &&
-                i === lastAssistantIndex &&
-                isAssistant(chat) &&
-                (!chat.node.content || chat.node.content.length === 0)
-              }
-            />
-          ))}
-        </>
-      </ul>
+    <div className={clsx('h-full min-h-0 w-full flex-1 overflow-auto mx-auto')} ref={containerRef}>
+      <div className="w-full max-w-4xl mx-auto px-4 ">
+        <div className={clsx('flex min-h-full flex-col gap-9 pb-24')}>
+          <>
+            {messages.map((chat, i) => (
+              <ChatMessage
+                chat={chat}
+                key={i}
+                showDots={
+                  isStreamingNow &&
+                  i === lastAssistantIndex &&
+                  isAssistant(chat) &&
+                  (!chat.node.content || chat.node.content.length === 0)
+                }
+              />
+            ))}
+          </>
+        </div>
+      </div>
     </div>
   );
 }

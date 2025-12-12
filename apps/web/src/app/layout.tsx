@@ -13,9 +13,12 @@ const ibmPlexKr = IBM_Plex_Sans_KR({
 
 export default function TalkieLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
-        className={clsx(ibmPlexKr.variable, 'min-h-screen bg-background text-foreground antialiased')}
+        className={clsx(
+          ibmPlexKr.variable,
+          'min-h-screen bg-background text-foreground antialiased',
+        )}
       >
         <ThemeProvider
           attribute="class"

@@ -1,11 +1,8 @@
-'use client';
-import React, { ReactNode, useEffect, useState, useRef } from 'react';
-import { usePathname } from 'next/navigation';
+'use client'
+import React, { ReactNode } from 'react';
 
 import { useAuthBootstrap } from '@/features/auth/useAuthBootstrap';
 import Header from '@/components/Header';
-import { clsx } from 'clsx';
-import { useAuthState } from '@/features/auth/auth.store';
 import ApolloProvider from '@/providers/ApolloProvider';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';

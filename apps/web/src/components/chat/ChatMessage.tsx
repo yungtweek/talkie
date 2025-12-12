@@ -49,12 +49,14 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
   const roleClass =
     role === 'user'
       ? 'ml-auto w-fit max-w-[80%] rounded-3xl bg-[var(--border)] px-5 py-2'
+      : role === 'assistant'
+        ? 'w-full max-w-[100%]'
       : role === 'system'
         ? 'w-full px-6 py-3'
         : '';
 
   return (
-    <li className={clsx(roleClass, 'prose')} role={chat.node.role}>
+    <div className={clsx(roleClass, 'prose')} role={chat.node.role}>
       {showDots && (
         <div className="mt-0 inline-flex gap-1">
           <span className="inline-block animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
@@ -77,6 +79,6 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
       >
         {chat.node.content}
       </ReactMarkdown>
-    </li>
+    </div>
   );
 }
