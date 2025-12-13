@@ -54,6 +54,7 @@ class VllmGrpcClient:
             timeout_ms: Optional[int],
     ) -> None:
         self.addr = addr
+        self.provider = "vllm"
         self.model = model
         self.timeout_ms = timeout_ms
 

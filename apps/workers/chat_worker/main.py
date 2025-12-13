@@ -99,7 +99,7 @@ async def main():
     chat_repo = PostgresChatRepo(pool)
     history_repo = PostgresHistoryRepository(pool)
     session_repo = PostgresChatSessionRepo(pool)
-    llm_client = await get_vllm_llm()  # await get_openai_llm()
+    llm_client = await get_vllm_llm()
     # llm_client = await get_openai_llm()
     llm_adapter = LangchainLlmAdapter(llm_client)
 

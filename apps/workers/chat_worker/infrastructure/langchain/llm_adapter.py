@@ -2,7 +2,7 @@ from __future__ import annotations
 import inspect
 import asyncio
 
-from typing import List, Any
+from typing import List, Any, Optional
 
 from charset_normalizer.md import getLogger
 from langchain_core.messages import BaseMessage
@@ -14,6 +14,9 @@ logger = getLogger(str(__name__))
 def _extract_configurable_kwargs(
         config: RunnableConfig | dict | None,
 ) -> tuple[dict, RunnableConfig | dict | None]:
+    """
+    Split out overrides from config.configurable while keeping the original config (for callbacks/tags).
+    """
     if config is None:
         return {}, None
 
@@ -49,6 +52,14 @@ class LangchainLlmAdapter:
         """Wrap a LangChain-compatible LLM client (e.g., ChatOpenAI, VllmGrpcClient, etc.)."""
         self._llm = llm
 
+    @property
+    def model(self) -> str:
+        return getattr(self._llm, "model", None) or "unknown"
+
+    @property
+    def provider(self) -> Optional[str]:
+        return getattr(self._llm, "provider", None) or "unknown"
+
     async def ainvoke(
             self,
             messages: List[BaseMessage],
@@ -67,18 +78,16 @@ class LangchainLlmAdapter:
             self,
             messages: List[BaseMessage],
             config: RunnableConfig | None = None,
-    ):
+    ) -> None:
         """Streaming ChatCompletion wrapper that forwards chunks via LangChain callbacks."""
-        logger.debug("Streaming ChatCompletion", extra={"messages": messages})
         kwargs, cfg = _extract_configurable_kwargs(config)
-
         # Call backend .astream and support both:
         # 1) async iterator directly
         # 2) coroutine that resolves to an async iterator
         if cfg is None:
             stream_or_coro = self._llm.astream(messages, **kwargs)
         else:
-            stream_or_coro = self._llm.astream(messages, config=cfg, **kwargs)
+            stream_or_coro = self._llm.astream(messages, config=config, **kwargs)
 
         if inspect.iscoroutine(stream_or_coro):
             astream = await stream_or_coro
@@ -104,7 +113,6 @@ class LangchainLlmAdapter:
 
         Designed to be called synchronously (e.g., Streamlit `write_stream`).
         """
-        logger.debug("UI Streaming ChatCompletion", extra={"messages": messages})
         kwargs, cfg = _extract_configurable_kwargs(config)
 
         if cfg is None:

@@ -5,9 +5,21 @@ from time import monotonic
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 from langchain_core.callbacks import AsyncCallbackHandler
+from langchain_core.messages import BaseMessage
 from langchain_core.outputs import LLMResult
 
 logger = getLogger(__name__)
+
+
+def _messages_to_prompt_strings(messages: List[BaseMessage]) -> List[str]:
+    """Convert chat messages to plain strings for token estimation."""
+    prompts: List[str] = []
+    for m in messages or []:
+        try:
+            prompts.append(str(getattr(m, "content", m)))
+        except Exception:
+            prompts.append(str(m))
+    return prompts
 
 
 class MetricsCallback(AsyncCallbackHandler):
@@ -145,12 +157,13 @@ class MetricsCallback(AsyncCallbackHandler):
     # -------- LLM lifecycle hooks --------
     async def on_chat_model_start(
             self,
-            *args,
+            serialized: Dict[str, Any],
+            messages: List[BaseMessage],
             **kwargs: Any,
-    ):
-        # LangChain 0.2+ emits this event when an LLM starts
-        # We don't need to do anything special here, just silence the warning
-        pass
+    ) -> None:
+        # Bridge chat events to llm events for compatibility with ChatOpenAI, etc.
+        prompts = _messages_to_prompt_strings(messages)
+        await self.on_llm_start(serialized, prompts, **kwargs)
 
     async def on_llm_start(
             self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any
@@ -237,6 +250,10 @@ class MetricsCallback(AsyncCallbackHandler):
         if run_id:
             self._tracked_run_ids.discard(str(run_id))
 
+    async def on_chat_model_end(self, response: LLMResult, **kwargs: Any) -> None:
+        # Bridge chat events to llm events for compatibility
+        await self.on_llm_end(response, **kwargs)
+
     async def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
         run_id = kwargs.get("run_id")
         if run_id and str(run_id) not in self._tracked_run_ids:
@@ -248,3 +265,7 @@ class MetricsCallback(AsyncCallbackHandler):
 
         if run_id:
             self._tracked_run_ids.discard(str(run_id))
+
+    async def on_chat_model_error(self, error: BaseException, **kwargs: Any) -> None:
+        # Bridge chat events to llm events for compatibility
+        await self.on_llm_error(error, **kwargs)
