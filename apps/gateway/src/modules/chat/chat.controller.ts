@@ -1,5 +1,15 @@
 // src/modules/chat/chat.controller.ts
-import { Controller, Post, Body, Sse, MessageEvent, Param, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Sse,
+  MessageEvent,
+  Param,
+  Req,
+  UseGuards,
+  Get,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { ChatService } from './chat.service';
 import { ZodValidationPipe } from 'nestjs-zod';
@@ -70,5 +80,12 @@ export class ChatController {
     const lastEventId = (req.headers['last-event-id'] as string | undefined) ?? '0-0';
     // Delegate to service: ChatService should return Observable<MessageEvent>
     return this.chat.sessionEvents(jobId, user, lastEventId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('session/:sessionId/access')
+  async access(@Param('sessionId') sessionId: string, @CurrentUser() user: AuthUser) {
+    await this.chat.assertSessionAccess(sessionId, user.sub)
+    return { allowed: true}
   }
 }
