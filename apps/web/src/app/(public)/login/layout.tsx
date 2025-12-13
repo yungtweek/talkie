@@ -1,14 +1,16 @@
 'use client';
 import React, { ReactNode } from 'react';
 import { clsx } from 'clsx';
-import styles from '@/app/(app)/page.module.scss';
 import Header from '@/components/Header';
+import { SidebarProvider } from '@/components/ui/sidebar';
 
 export default function LoginLayout({ children }: { children: ReactNode }) {
   return (
-    <div className={clsx(styles.wrapper)}>
-      <Header />
-      <main>{children}</main>
-    </div>
+    <SidebarProvider>
+      <div className={clsx('min-h-screen w-full bg-background text-foreground')}>
+        <Header />
+        <main className="p-4 md:p-6 lg:p-8">{children}</main>
+      </div>
+    </SidebarProvider>
   );
 }

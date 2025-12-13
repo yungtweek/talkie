@@ -5,7 +5,7 @@
  * - Also bridges Redis streams for chat and session-level events.
  */
 // src/modules/chat/chat.service.ts
-import { Inject, Injectable, Logger, MessageEvent } from '@nestjs/common';
+import { Inject, Injectable, Logger, MessageEvent, NotFoundException } from '@nestjs/common';
 import Redis from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
@@ -329,6 +329,12 @@ export class ChatService {
         }
       };
     });
+  }
+
+  async assertSessionAccess(sessionId: string, userId: string) {
+    const ok = await this.chatRepo.ensureOwned(sessionId, userId);
+    if (!ok) throw new NotFoundException(); // 존재/권한 둘 다 404로 숨김
+    return true;
   }
 
   /**

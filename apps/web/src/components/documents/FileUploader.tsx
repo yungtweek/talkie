@@ -1,6 +1,5 @@
 'use client';
 import React, { useRef, useState } from 'react';
-import styles from './FileUploader.module.scss';
 import { fetchWithAutoRefresh } from '@/lib/fetchWithAutoRefresh.client';
 import { presignAction } from '@/actions/ingest/presign.action';
 import { completeAction } from '@/actions/ingest/complete.action';
@@ -136,19 +135,30 @@ export default function FileUploader() {
   };
 
   return (
-    <div className={styles.container}>
-      <form className={styles.form} onSubmit={handleSubmit} aria-busy={pending}>
-        <div className={styles.fieldRow}>
+    <div className="my-3">
+      <form
+        className="rounded-xl border border-border bg-white/70 p-4 shadow-sm backdrop-blur-sm dark:bg-white/5"
+        onSubmit={handleSubmit}
+        aria-busy={pending}
+      >
+        <div className="grid grid-cols-[1fr_auto] items-center gap-3">
           <label
             htmlFor="file-input"
-            className={`${styles.dropArea} ${isDragging ? styles.dragActive : ''}`}
+            className={
+              `relative flex min-h-11 w-full cursor-pointer select-none items-center justify-center gap-2 rounded-md border border-dashed ` +
+              `border-white/20 bg-white/10 px-3 py-2 text-sm transition ` +
+              `hover:border-white/40 hover:bg-white/20 ` +
+              (isDragging
+                ? 'border-indigo-400/70 bg-indigo-500/10 shadow-[inset_0_0_0_1px_rgba(99,102,241,0.35)]'
+                : '')
+            }
             onDragEnter={handleDragEnter}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             aria-label="Drag & drop a file or click to select"
           >
-            <span className={styles.fileLabel}>
+            <span className="pointer-events-none text-[13px] text-neutral-300">
               {isDragging ? 'Drop here' : file ? file.name : 'Select a file or drag & drop'}
             </span>
             <input
@@ -156,16 +166,20 @@ export default function FileUploader() {
               ref={inputRef}
               type="file"
               onChange={e => setFileFromList(e.target.files)}
-              className={styles.fileInput}
+              className="absolute inset-0 cursor-pointer opacity-0"
               aria-describedby="file-help"
             />
           </label>
 
-          <button type="submit" className={styles.submitBtn} disabled={pending || !file}>
+          <button
+            type="submit"
+            className="h-[42px] w-20 rounded-lg border border-white/20 bg-gradient-to-b from-white/10 to-white/5 px-3 py-2 text-sm font-semibold text-neutral-100 transition hover:border-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={pending || !file}
+          >
             {pending ? '…' : 'Upload'}
           </button>
         </div>
-        <p id="file-help" className={styles.help}>
+        <p id="file-help" className="mt-2 text-xs text-neutral-400">
           Please upload a document file. (PDF, Markdown, etc.)
         </p>
       </form>

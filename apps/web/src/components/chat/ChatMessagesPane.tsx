@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { clsx } from 'clsx';
-import styles from '@/components/chat/ChatSession.module.scss';
 import ChatMessage from '@/components/chat/ChatMessage';
 import { useSessionsState } from '@/features/chat/chat.sessions.store';
 import { useChatSessionStream } from '@/features/chat/useChatSessionStream';
@@ -43,23 +42,25 @@ export default function MessagesPane() {
   })();
 
   return (
-    <div className={clsx(styles.conversation)} ref={containerRef}>
-      <ul className={clsx(styles.stack)}>
-        <>
-          {messages.map((chat, i) => (
-            <ChatMessage
-              chat={chat}
-              key={i}
-              showDots={
-                isStreamingNow &&
-                i === lastAssistantIndex &&
-                isAssistant(chat) &&
-                (!chat.node.content || chat.node.content.length === 0)
-              }
-            />
-          ))}
-        </>
-      </ul>
+    <div className={clsx('h-full min-h-0 w-full flex-1 overflow-auto mx-auto')} ref={containerRef}>
+      <div className="w-full max-w-4xl mx-auto px-4 ">
+        <div className={clsx('flex min-h-full flex-col gap-9 pb-24')}>
+          <>
+            {messages.map((chat, i) => (
+              <ChatMessage
+                chat={chat}
+                key={i}
+                showDots={
+                  isStreamingNow &&
+                  i === lastAssistantIndex &&
+                  isAssistant(chat) &&
+                  (!chat.node.content || chat.node.content.length === 0)
+                }
+              />
+            ))}
+          </>
+        </div>
+      </div>
     </div>
   );
 }

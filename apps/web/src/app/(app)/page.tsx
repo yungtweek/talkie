@@ -1,5 +1,4 @@
 'use client';
-import styles from './page.module.scss';
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { chatStore } from '@/features/chat/chat.store';
@@ -16,59 +15,69 @@ export default function TalkieEntry() {
     reset();
   }, [setActiveSessionId, setSelectedSessionId, reset]);
 
+  const cardClass =
+    'rounded-2xl border border-neutral-200/70 bg-white/80 p-6 shadow-sm backdrop-blur-sm ' +
+    'transition hover:border-neutral-400/80 hover:shadow-md ' +
+    'dark:border-white/10 dark:bg-white/5 dark:hover:border-white/20';
+  const ctaClass =
+    'inline-flex items-center justify-center rounded-lg border border-neutral-300/80 px-3 py-2 ' +
+    'text-sm font-medium transition hover:border-transparent hover:bg-neutral-900 ' +
+    'dark:border-white/20 dark:hover:bg-white/10';
+
   return (
-    <div className={styles.wrapper}>
-      <main className={styles.hero__main}>
-        <section className={styles.hero__intro}>
-          <h1>
-            Hi, I’m <span className="">TALKIE</span>😎
-          </h1>
-          <p className={styles.description}>
-            An AI chat assistant built for real-time reasoning, streaming, and observability.
-          </p>
-        </section>
+    <div className="overscroll-contain -webkit-overflow-scrolling-touch flex-1 touch-pan-y overflow-y-auto">
+      <div className="h-full w-full bg-linear-to-b from-white to-neutral-100 dark:from-neutral-950 dark:to-neutral-900">
+        <main className="mx-auto flex max-w-6xl flex-col gap-12 px-6 py-16 md:px-10 lg:py-24">
+          <section className="space-y-4 text-center md:text-left">
+            <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
+              Hi, I’m <span>TALKIE</span>😎
+            </h1>
+            <p className="mx-auto max-w-2xl text-lg md:mx-0">
+              An AI chat assistant built for real-time reasoning, streaming, and observability.
+            </p>
+          </section>
 
-        <section className={styles.features}>
-          <h2 className={styles.title}>Features</h2>
-          <div className={styles.grid}>
-            <article className={styles.featureCard}>
-              <h3 className={styles.featureTitle}>💬 Generative Chat</h3>
-              <p className={styles.featureDesc}>
-                Real-time text streaming powered by FastAPI and Kafka. Optimized for responsiveness
-                and scalability.
-              </p>
-              <Link href={user ? '/chat' : '/login'} className={styles.cta}>
-                {user ? 'Try your chat' : 'Login to test with demo chat'}
-              </Link>
-            </article>
+          <section className="space-y-6">
+            <h2 className="text-2xl font-semibold">Features</h2>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              <article className={cardClass}>
+                <h3 className="text-lg font-semibold">💬 Generative Chat</h3>
+                <p className="mt-2 text-sm">
+                  Real-time text streaming powered by FastAPI and Kafka. Optimized for
+                  responsiveness and scalability.
+                </p>
+                <Link href={user ? '/chat' : '/login'} className={`${ctaClass} mt-4 w-full`}>
+                  {user ? 'Try your chat' : 'Login to test with demo chat'}
+                </Link>
+              </article>
 
-            <article className={styles.featureCard}>
-              <h3 className={styles.featureTitle}>📄 RAG Search</h3>
-              <p className={styles.featureDesc}>
-                Retrieve and reason with your uploaded data using Weaviate and LangChain.
-              </p>
-              <Link href={user ? '/documents' : '/login'} className={styles.cta}>
-                {user ? 'Try your data' : 'Login to test with demo data'}
-              </Link>
-            </article>
+              <article className={cardClass}>
+                <h3 className="text-lg font-semibold">📄 RAG Search</h3>
+                <p className="mt-2 text-sm">
+                  Retrieve and reason with your uploaded data using Weaviate and LangChain.
+                </p>
+                <Link href={user ? '/documents' : '/login'} className={`${ctaClass} mt-4 w-full`}>
+                  {user ? 'Try your data' : 'Login to test with demo data'}
+                </Link>
+              </article>
 
-            <article className={styles.featureCard}>
-              <h3 className={styles.featureTitle}>📊 Metrics Dashboard</h3>
-              <p className={styles.featureDesc}>
-                Observe latency, token usage, and performance through Prometheus & Grafana.
-              </p>
-              <Link
-                href="/"
-                className={styles.cta}
-                style={{ cursor: 'not-allowed' }}
-                onClick={e => e.preventDefault()}
-              >
-                🚧 Working on it...
-              </Link>
-            </article>
-          </div>
-        </section>
-      </main>
+              <article className={cardClass}>
+                <h3 className="text-lg font-semibold">📊 Metrics Dashboard</h3>
+                <p className="mt-2 text-sm">
+                  Observe latency, token usage, and performance through Prometheus & Grafana.
+                </p>
+                <Link
+                  href="/"
+                  className={`${ctaClass} mt-4 w-full cursor-not-allowed opacity-60`}
+                  onClick={e => e.preventDefault()}
+                >
+                  🚧 Working on it...
+                </Link>
+              </article>
+            </div>
+          </section>
+        </main>
+      </div>
     </div>
   );
 }

@@ -1,11 +1,11 @@
+
 import { clsx } from 'clsx';
-import styles from '@/components/chat/ChatSession.module.scss';
+import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import rehypeSanitize from 'rehype-sanitize';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import React from 'react';
 import { ChatEdge } from '@/features/chat/chat.types';
 
 export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDots?: boolean }) {
@@ -14,11 +14,13 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
     const raw = String(children).replace(/\n$/, '');
     const code = stripIndent(raw);
     return match ? (
-      <pre className={styles.codeBlock}>
-        <div className={styles.codeLabel}>{match[1]}</div>
+      <pre className="overflow-x-auto rounded-xl p-0" style={{paddingLeft: 0, paddingRight: 0}}>
+        <div className="border-b border-border bg-(--border-mid) px-4 py-1 opacity-70 text-muted-foreground">
+          {match[1]}
+        </div>
         <SyntaxHighlighter
           PreTag="div"
-          style={vscDarkPlus} // 🎨 theme based on isDark
+          style={vscDarkPlus}
           language={match[1]}
           customStyle={{ margin: 0, padding: '1.5rem 1.5rem' }}
           {...props}
@@ -27,7 +29,7 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
         </SyntaxHighlighter>
       </pre>
     ) : (
-      <code className={match} {...props}>
+      <code className={className} {...props}>
         {children}
       </code>
     );
@@ -43,13 +45,23 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
     return lines.map(l => l.slice(min)).join('\n');
   }
 
+  const role = chat.node.role;
+  const roleClass =
+    role === 'user'
+      ? 'ml-auto w-fit max-w-[80%] rounded-3xl bg-[var(--border)] px-5 py-2'
+      : role === 'assistant'
+        ? 'w-full max-w-[100%]'
+      : role === 'system'
+        ? 'w-full px-6 py-3'
+        : '';
+
   return (
-    <li className={clsx(styles[chat.node.role], styles.article)} role={chat.node.role}>
+    <div className={clsx(roleClass, 'prose')} role={chat.node.role}>
       {showDots && (
-        <div className={styles.typingDots}>
-          <span>.</span>
-          <span>.</span>
-          <span>.</span>
+        <div className="mt-0 inline-flex gap-1">
+          <span className="inline-block animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
+          <span className="inline-block animate-bounce" style={{ animationDelay: '200ms' }}>.</span>
+          <span className="inline-block animate-bounce" style={{ animationDelay: '400ms' }}>.</span>
         </div>
       )}
       <ReactMarkdown
@@ -67,6 +79,6 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
       >
         {chat.node.content}
       </ReactMarkdown>
-    </li>
+    </div>
   );
 }

@@ -5,8 +5,9 @@ import {ReactNode} from "react";
 import {StickyComposer} from "@/components/chat/StickyComposer";
 
 export default function ChatLayout({children}: { children: ReactNode }) {
-    return <ChatProvider>
+    return (
+      <ChatProvider>
         {children}
-        <StickyComposer />
-    </ChatProvider>
+      </ChatProvider>
+    );
 }
