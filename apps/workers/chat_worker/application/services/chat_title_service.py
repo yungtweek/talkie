@@ -4,6 +4,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from chat_worker.application.dto.requests import TitleRequest
 from chat_worker.domain.ports.llm import LlmPort
+from chat_worker.infrastructure.langchain.llm_adapter import LangchainLlmAdapter
 from chat_worker.infrastructure.repo.postgres_session_repo import PostgresChatSessionRepo
 
 
@@ -37,7 +38,7 @@ class ChatTitleService:
     def __init__(
         self,
         session_repo: PostgresChatSessionRepo,
-        llm: LlmPort,
+        llm: LangchainLlmAdapter,
         xadd_session_event,
     ):
         self.session_repo = session_repo

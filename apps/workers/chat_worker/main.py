@@ -7,10 +7,8 @@ Chat Worker Entrypoint
 # main.py
 import asyncio, os, signal
 import json
-import logging
 import sys
 import time
-from logging import getLogger
 
 from langchain_openai import OpenAIEmbeddings
 
@@ -36,23 +34,11 @@ from redis.asyncio import Redis
 
 from chat_worker.application.llm_runner import llm_runner
 from chat_worker.infrastructure.stream.stream_service import StreamService
+from chat_worker.logging_setup import get_logger
+
 
 settings = Settings()
-
-log = getLogger('ChatWorker')
-
-LOG_LEVEL = settings.LOG_LEVEL
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format="%(asctime)s %(levelname).1s %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
-
-# Tone down noisy third‑party loggers
-for noisy in ("aiokafka", "urllib3", "asyncio", "botocore", "httpcore", "httpx", "s3transfer", "boto3",
-              "openai._base_client"):
-    logging.getLogger(noisy).setLevel(settings.NOISY_LEVEL)
+log = get_logger("ChatWorker", settings.LOG_LEVEL, settings.NOISY_LEVEL)
 
 if settings.OPENAI_API_KEY:
     os.environ["OPENAI_API_KEY"] = settings.OPENAI_API_KEY
@@ -66,6 +52,16 @@ RES_PREFIX = "chat.response."
 shutdown_event = asyncio.Event()  # 👈 shutdown signal
 CHAT_SEM = asyncio.Semaphore(64)  # concurrency cap per worker process
 TITLE_SEM = asyncio.Semaphore(512)
+
+
+async def _build_llm_client(provider: str, model: str):
+    """Create an LLM client based on provider."""
+    provider_lower = provider.lower()
+    if provider_lower == "openai":
+        return await get_openai_llm(model=model)
+    if provider_lower == "vllm":
+        return await get_vllm_llm(model=model)
+    raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
 async def main():
@@ -99,9 +95,28 @@ async def main():
     chat_repo = PostgresChatRepo(pool)
     history_repo = PostgresHistoryRepository(pool)
     session_repo = PostgresChatSessionRepo(pool)
-    llm_client = await get_vllm_llm()  # await get_openai_llm()
-    # llm_client = await get_openai_llm()
+    # Resolve provider/model per role (response vs. title)
+    response_provider, response_model = settings.resolve_response_provider_model()
+    title_provider, title_model = settings.resolve_title_provider_model()
+
+    log.info(
+        "LLM config resolved",
+        extra={
+            "response_provider": response_provider,
+            "response_model": response_model,
+            "title_provider": title_provider,
+            "title_model": title_model,
+        },
+    )
+
+    llm_client = await _build_llm_client(response_provider, response_model)
     llm_adapter = LangchainLlmAdapter(llm_client)
+
+
+    if title_provider == response_provider and title_model == response_model:
+        title_llm_adapter = llm_adapter
+    else:
+        title_llm_adapter = LangchainLlmAdapter(await _build_llm_client(title_provider, title_model))
 
     # Warm-up/health probe (optional)
     r = await redis.info()
@@ -127,7 +142,7 @@ async def main():
     rag_chain = pipeline.build()  # 🔁 build once; reuse per request
 
     history_service = ChatHistoryService(history_repo, system_prompt, settings.MAX_CTX_TOKENS)
-    title_service = ChatTitleService(session_repo, llm_adapter, xadd_session_event)
+    title_service = ChatTitleService(session_repo, title_llm_adapter, xadd_session_event)
     llm_service = ChatLLMService(settings, history_service, stream_service, chat_repo, metrics_repo, rag_chain,
                                  llm_adapter, llm_runner)
     await consumer.start()

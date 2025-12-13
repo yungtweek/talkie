@@ -1,13 +1,86 @@
 from __future__ import annotations
 
-from logging import getLogger
 from time import monotonic
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 from langchain_core.callbacks import AsyncCallbackHandler
+from langchain_core.messages import BaseMessage
 from langchain_core.outputs import LLMResult
 
-logger = getLogger(__name__)
+from chat_worker.logging_setup import get_logger
+
+logger = get_logger(str(__name__))
+
+
+def _messages_to_prompt_strings(messages: List[BaseMessage]) -> List[str]:
+    """Convert chat messages to plain strings for token estimation."""
+    prompts: List[str] = []
+    for m in messages or []:
+        try:
+            prompts.append(str(getattr(m, "content", m)))
+        except Exception:
+            prompts.append(str(m))
+    return prompts
+
+
+def _as_int(value: Any) -> Optional[int]:
+    """Best-effort cast to int; returns None when conversion fails."""
+    try:
+        if value is None:
+            return None
+        return int(value)
+    except Exception:
+        return None
+
+def parse_llmresult_metadata(response: LLMResult) -> Dict[str, Any]:
+    """
+    Extract model_name and token usage from LangChain LLMResult.
+
+    Supports ChatOpenAI / GPT-5 style responses where usage metadata
+    lives inside ChatGenerationChunk.message.
+    """
+
+    model_name: Optional[str] = None
+    tokens_in: Optional[int] = None
+    tokens_out: Optional[int] = None
+    total_tokens: Optional[int] = None
+
+    # LLMResult.generations: List[List[ChatGeneration | ChatGenerationChunk]]
+    for gen_group in response.generations or []:
+        for gen in gen_group:
+            msg = getattr(gen, "message", None)
+            if not msg:
+                continue
+
+            # 1️⃣ model name
+            meta = getattr(msg, "response_metadata", None) or {}
+            if not model_name:
+                model_name = meta.get("model_name")
+
+            # 2️⃣ token usage
+            usage = getattr(msg, "usage_metadata", None) or {}
+            gen_info = getattr(gen, "generation_info", None) or {}
+            if not usage and gen_info:
+                usage = {
+                    "input_tokens": gen_info.get("prompt_tokens"),
+                    "output_tokens": gen_info.get("completion_tokens"),
+                    "total_tokens": gen_info.get("total_tokens"),
+                }
+            if usage:
+                tokens_in = usage.get("input_tokens", tokens_in)
+                tokens_out = usage.get("output_tokens", tokens_out)
+                total_tokens = usage.get("total_tokens", total_tokens)
+
+        # 하나만 잡으면 충분
+        if model_name or tokens_in or tokens_out:
+            break
+
+    return {
+        "model_name": model_name,
+        "prompt_tokens": tokens_in,
+        "completion_tokens": tokens_out,
+        "total_tokens": total_tokens,
+    }
 
 
 class MetricsCallback(AsyncCallbackHandler):
@@ -20,7 +93,7 @@ class MetricsCallback(AsyncCallbackHandler):
     - If `persist` is provided, metrics are written asynchronously to a persistent store.
 
     Usage:
-        cb = MetricsCallback(job_id, mode='gen', model='gpt-4o-mini', sink=async_sink)
+        cb = MetricsCallback(job_id, mode='gen', provider='openai', model='gpt-4o-mini', sink=async_sink)
         await llm.ainvoke(messages, {"callbacks": [cb]})
 
         # Example: tiktoken-based counter
@@ -34,6 +107,7 @@ class MetricsCallback(AsyncCallbackHandler):
             job_id: str,
             *,
             mode: str = "gen",
+            provider: Optional[str] = None,
             model: Optional[str] = None,
             sink: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
             persist: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
@@ -42,6 +116,7 @@ class MetricsCallback(AsyncCallbackHandler):
     ) -> None:
         self.job_id = job_id
         self.mode = mode
+        self.provider = provider
         self.model = model
         self.sink = sink
         self.persist = persist
@@ -85,6 +160,7 @@ class MetricsCallback(AsyncCallbackHandler):
         return {
             "jobId": self.job_id,
             "mode": self.mode,
+            "provider": self.provider,
             "model": self.model,
             "tokensIn": self._tokens_in,
             "tokensOut": self._tokens_out,
@@ -120,6 +196,7 @@ class MetricsCallback(AsyncCallbackHandler):
             "parent_span_id": None,
             "user_id": None,
             "request_tag": "llm:request:chat",
+            "provider": self.provider or "unknown",
             "model_name": self.model or "unknown",
             "model_path": "unknown",
             "use_rag": (self.mode == "rag"),
@@ -145,12 +222,13 @@ class MetricsCallback(AsyncCallbackHandler):
     # -------- LLM lifecycle hooks --------
     async def on_chat_model_start(
             self,
-            *args,
+            serialized: Dict[str, Any],
+            messages: List[BaseMessage],
             **kwargs: Any,
-    ):
-        # LangChain 0.2+ emits this event when an LLM starts
-        # We don't need to do anything special here, just silence the warning
-        pass
+    ) -> None:
+        # Bridge chat events to llm events for compatibility with ChatOpenAI, etc.
+        prompts = _messages_to_prompt_strings(messages)
+        await self.on_llm_start(serialized, prompts, **kwargs)
 
     async def on_llm_start(
             self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any
@@ -208,15 +286,46 @@ class MetricsCallback(AsyncCallbackHandler):
 
         # Some providers return usage info → can adjust in/out token counts
         try:
-            usage = getattr(response, "llm_output", None) or {}
-            # Example: usage = {"token_usage": {"completion_tokens": 123, "prompt_tokens": 45}}
-            token_usage = usage.get("token_usage") or usage.get("usage") or {}
-            comp = token_usage.get("completion_tokens")
-            prompt = token_usage.get("prompt_tokens")
-            if isinstance(comp, int) and comp >= self._tokens_out:
-                self._tokens_out = comp
-            if isinstance(prompt, int) and prompt >= self._tokens_in:
+            parsed = parse_llmresult_metadata(response)
+            logger.debug("parsed llm metadata: %s", parsed)
+            usage_root = getattr(response, "llm_output", None) or {}
+            token_usage = usage_root.get("token_usage") or usage_root.get("usage") or usage_root or {}
+
+            # Prefer model name from provider response; fall back to parsed
+            model_from_resp = usage_root.get("model_name") or parsed.get("model_name")
+            if model_from_resp:
+                self.model = model_from_resp
+
+            prompt_val = (
+                token_usage.get("prompt_tokens")
+                or token_usage.get("input_tokens")
+                or parsed.get("prompt_tokens")
+            )
+            comp_val = (
+                token_usage.get("completion_tokens")
+                or token_usage.get("output_tokens")
+                or parsed.get("completion_tokens")
+            )
+            total_val = token_usage.get("total_tokens") or parsed.get("total_tokens")
+
+            prompt = _as_int(prompt_val)
+            comp = _as_int(comp_val)
+            total = _as_int(total_val)
+
+            if prompt is not None and prompt >= self._tokens_in:
                 self._tokens_in = prompt
+            if comp is not None and comp >= self._tokens_out:
+                self._tokens_out = comp
+            if total is not None:
+                # Fill whichever side is missing using total - known side
+                if comp is None and prompt is not None and total >= prompt:
+                    derived_out = total - prompt
+                    if derived_out >= self._tokens_out:
+                        self._tokens_out = derived_out
+                if prompt is None and comp is not None and total >= comp:
+                    derived_in = total - comp
+                    if derived_in >= self._tokens_in:
+                        self._tokens_in = derived_in
         except Exception:
             pass
 
@@ -237,6 +346,10 @@ class MetricsCallback(AsyncCallbackHandler):
         if run_id:
             self._tracked_run_ids.discard(str(run_id))
 
+    async def on_chat_model_end(self, response: LLMResult, **kwargs: Any) -> None:
+        # Bridge chat events to llm events for compatibility
+        await self.on_llm_end(response, **kwargs)
+
     async def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
         run_id = kwargs.get("run_id")
         if run_id and str(run_id) not in self._tracked_run_ids:
@@ -248,3 +361,7 @@ class MetricsCallback(AsyncCallbackHandler):
 
         if run_id:
             self._tracked_run_ids.discard(str(run_id))
+
+    async def on_chat_model_error(self, error: BaseException, **kwargs: Any) -> None:
+        # Bridge chat events to llm events for compatibility
+        await self.on_llm_error(error, **kwargs)

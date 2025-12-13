@@ -8,6 +8,7 @@ from chat_worker.application.utils.to_langchain_messages import to_langchain_mes
 from chat_worker.domain.ports.chat_repo import ChatRepositoryPort
 from chat_worker.domain.ports.llm import LlmPort
 from chat_worker.domain.ports.metrics_repo import MetricsRepositoryPort
+from chat_worker.infrastructure.langchain.llm_adapter import LangchainLlmAdapter
 from chat_worker.settings import Settings
 
 
@@ -36,7 +37,7 @@ class ChatLLMService:
             chat_repo: ChatRepositoryPort,
             metrics_repo: MetricsRepositoryPort,
             rag_chain: Any,
-            llm_client: LlmPort,
+            llm_client: LangchainLlmAdapter,
             llm_runner: Callable[..., Awaitable[None]],
     ) -> None:
         """

@@ -74,9 +74,11 @@ async def llm_runner(
     metric_cb = MetricsCallback(
         job_id=job_id,
         mode=mode,
+        provider=llm.provider,
+        model=llm.model,
         persist=_persist_row,
         token_len=token_len,
-        allowed_tags={"final_answer"},
+        allowed_tags=None,
     )
 
     # Invoke either the provided chain or the raw LLM with streaming callbacks attached
