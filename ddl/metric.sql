@@ -13,6 +13,7 @@ CREATE TABLE llm_metrics
     user_id           uuid,
 
     request_tag       text,
+    provider          text        NOT NULL DEFAULT 'unknown',
     model_name        text        NOT NULL,
     model_path        text        NOT NULL DEFAULT 'unknown',
 
@@ -46,6 +47,7 @@ COMMENT ON COLUMN llm_metrics.span_id IS 'Child span ID (unique per LLM invocati
 COMMENT ON COLUMN llm_metrics.parent_span_id IS 'Parent span for hierarchical trace linking.';
 COMMENT ON COLUMN llm_metrics.user_id IS 'User owning this request (optional for system jobs).';
 COMMENT ON COLUMN llm_metrics.request_tag IS 'Semantic tag for job type (e.g., llm:chat, llm:ingest).';
+COMMENT ON COLUMN llm_metrics.provider IS 'LLM provider or runtime backend (e.g., openai, vllm, unknown).';
 COMMENT ON COLUMN llm_metrics.model_name IS 'Model display name (e.g., gpt-4o-mini, llama3-8b).';
 COMMENT ON COLUMN llm_metrics.model_path IS 'Physical or relative model path (e.g., gguf filename).';
 COMMENT ON COLUMN llm_metrics.use_rag IS 'Indicates if the request used retrieval-augmented generation.';
@@ -123,7 +125,7 @@ CREATE INDEX idx_llm_metrics_rag_true_created ON llm_metrics (created_at DESC) W
 ;
 
 -- Common filter combination optimization (model + tag + time range)
-CREATE INDEX idx_llm_metrics_tag_model_time ON llm_metrics (request_tag, model_name, created_at DESC)
+CREATE INDEX idx_llm_metrics_tag_model_time ON llm_metrics (request_tag, provider, model_name, created_at DESC)
 ;
 
 -- 5) Optional Unique Constraint: prevent duplicate events
@@ -141,6 +143,7 @@ SELECT id,
        parent_span_id,
        user_id,
        request_tag,
+       provider,
        model_name,
        model_path,
        use_rag,
@@ -160,3 +163,10 @@ FROM llm_metrics
 
 -- Documentation: llm_metrics_compact
 COMMENT ON VIEW llm_metrics_compact IS 'Lightweight view for aggregated latency and token stats per request.';
+
+-- Migration helpers (for existing databases)
+ALTER TABLE llm_metrics
+    ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'unknown';
+
+CREATE INDEX IF NOT EXISTS idx_llm_metrics_provider_created_at
+    ON llm_metrics (provider, created_at DESC);

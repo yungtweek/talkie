@@ -32,7 +32,7 @@ class MetricsCallback(AsyncCallbackHandler):
     - If `persist` is provided, metrics are written asynchronously to a persistent store.
 
     Usage:
-        cb = MetricsCallback(job_id, mode='gen', model='gpt-4o-mini', sink=async_sink)
+        cb = MetricsCallback(job_id, mode='gen', provider='openai', model='gpt-4o-mini', sink=async_sink)
         await llm.ainvoke(messages, {"callbacks": [cb]})
 
         # Example: tiktoken-based counter
@@ -46,6 +46,7 @@ class MetricsCallback(AsyncCallbackHandler):
             job_id: str,
             *,
             mode: str = "gen",
+            provider: Optional[str] = None,
             model: Optional[str] = None,
             sink: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
             persist: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
@@ -54,6 +55,7 @@ class MetricsCallback(AsyncCallbackHandler):
     ) -> None:
         self.job_id = job_id
         self.mode = mode
+        self.provider = provider
         self.model = model
         self.sink = sink
         self.persist = persist
@@ -97,6 +99,7 @@ class MetricsCallback(AsyncCallbackHandler):
         return {
             "jobId": self.job_id,
             "mode": self.mode,
+            "provider": self.provider,
             "model": self.model,
             "tokensIn": self._tokens_in,
             "tokensOut": self._tokens_out,
@@ -132,6 +135,7 @@ class MetricsCallback(AsyncCallbackHandler):
             "parent_span_id": None,
             "user_id": None,
             "request_tag": "llm:request:chat",
+            "provider": self.provider or "unknown",
             "model_name": self.model or "unknown",
             "model_path": "unknown",
             "use_rag": (self.mode == "rag"),

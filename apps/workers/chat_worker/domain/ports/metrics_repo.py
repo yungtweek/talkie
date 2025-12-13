@@ -15,6 +15,7 @@ class MetricsRepositoryPort(ABC):
     - session_id: str | None
     - message_id: str | None
     - model: str
+    - provider: str | None  # e.g. 'openai', 'vllm', 'unknown'
     - prompt_tokens: int | None
     - completion_tokens: int | None
     - total_tokens: int | None

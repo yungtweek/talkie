@@ -74,6 +74,7 @@ async def llm_runner(
     metric_cb = MetricsCallback(
         job_id=job_id,
         mode=mode,
+        provider=llm.provider,
         model=llm.model,
         persist=_persist_row,
         token_len=token_len,
