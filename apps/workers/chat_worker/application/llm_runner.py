@@ -83,8 +83,6 @@ async def llm_runner(
 
     # Invoke either the provided chain or the raw LLM with streaming callbacks attached
     async def _invoke():
-        print(f"llm model: {llm.model}")
-        print(f"provider: {llm.provider}")
         # Configure callbacks for streaming tokens and metrics
         config = RunnableConfig(callbacks=[token_stream_cb, metric_cb], tags=["final_answer"])
         if chain is not None:

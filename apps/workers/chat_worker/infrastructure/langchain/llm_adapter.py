@@ -84,6 +84,7 @@ class LangchainLlmAdapter:
         # Call backend .astream and support both:
         # 1) async iterator directly
         # 2) coroutine that resolves to an async iterator
+        logger.debug("Streaming ChatCompletion", extra={"config": config})
         if cfg is None:
             stream_or_coro = self._llm.astream(messages, **kwargs)
         else:

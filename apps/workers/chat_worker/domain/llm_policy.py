@@ -19,15 +19,15 @@ class LlmProvider(str, Enum):
 class FallbackDecision:
     """Represents the provider order to attempt for an LLM call.
 
-    - primary: provider to try first
-    - fallbacks: providers to try sequentially if primary fails
+    - default_provider: provider to try first
+    - fallbacks: providers to try sequentially if the default fails
     """
-    primary: LlmProvider
+    default_provider: LlmProvider
     fallbacks: Sequence[LlmProvider]
 
     @property
     def ordered_providers(self) -> List[LlmProvider]:
-        """Return the provider list in order: primary first, then fallbacks (deduplicated)."""
+        """Return the provider list in order: default first, then fallbacks (deduplicated)."""
         seen: set[LlmProvider] = set()
         ordered: List[LlmProvider] = []
 
@@ -36,7 +36,7 @@ class FallbackDecision:
                 seen.add(p)
                 ordered.append(p)
 
-        _add(self.primary)
+        _add(self.default_provider)
         for fb in self.fallbacks:
             _add(fb)
 
@@ -66,7 +66,7 @@ def parse_providers(value: str) -> List[LlmProvider]:
 
 
 # Default domain-level policy (can be overridden via environment/settings)
-DEFAULT_PRIMARY_PROVIDER = LlmProvider.VLLM
+DEFAULT_PROVIDER = LlmProvider.VLLM
 DEFAULT_FALLBACK_PROVIDERS: Sequence[LlmProvider] = (LlmProvider.OPENAI,)
 
 
@@ -81,36 +81,37 @@ def get_default_policy(chat_mode: Optional[str] = None) -> FallbackDecision:
     """
     # TODO: chat_mode 기반으로 정책 분기 필요하면 여기서 구현
     return FallbackDecision(
-        primary=DEFAULT_PRIMARY_PROVIDER,
+        default_provider=DEFAULT_PROVIDER,
         fallbacks=list(DEFAULT_FALLBACK_PROVIDERS),
     )
 
 
 def build_policy_from_config(
-        primary: str,
+        default_provider: Optional[str] = None,
         fallbacks: Optional[str] = None,
 ) -> FallbackDecision:
     """Construct a fallback policy from configuration strings.
 
     Example:
-        primary="vllm"
+        default_provider="vllm"
         fallbacks="openai"
 
     The domain layer only consumes LlmProvider and FallbackDecision objects.
     """
+    chosen = default_provider
     try:
-        primary_provider = LlmProvider(primary.strip())
+        default = LlmProvider((chosen or "").strip())
     except ValueError:
         # Fallback to default provider (can be changed to raise if stricter behavior is needed)
-        primary_provider = DEFAULT_PRIMARY_PROVIDER
+        default = DEFAULT_PROVIDER
 
     fallback_providers: List[LlmProvider] = []
     if fallbacks:
         fallback_providers = parse_providers(fallbacks)
 
-    # Deduplicate primary from fallback list
+    # Deduplicate default from fallback list
     decision = FallbackDecision(
-        primary=primary_provider,
+        default_provider=default,
         fallbacks=fallback_providers,
     )
     return decision

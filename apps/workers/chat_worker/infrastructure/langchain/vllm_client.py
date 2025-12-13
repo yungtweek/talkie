@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Dict, Tuple, Optional, Iterable, Any, List
 
 import grpc
@@ -9,9 +8,10 @@ from langchain_core.messages import BaseMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
 
 from chat_worker.infrastructure.grpc_stubs.llm import llm_pb2_grpc, llm_pb2
+from chat_worker.logging_setup import get_logger
 from chat_worker.settings import Settings
 
-logger = logging.getLogger(str(__name__))
+logger = get_logger(str(__name__))
 
 _settings = Settings()
 _lock = asyncio.Lock()
@@ -133,7 +133,7 @@ class VllmGrpcClient:
         stub = await self._get_stub()
         system_prompt, user_prompt = _messages_to_prompts(messages)
         req = self._build_request(system_prompt, user_prompt, config, **kwargs)
-
+        logger.debug("Streaming ChatCompletion request", extra={"req": req})
         timeout_s = (self.timeout_ms or _settings.LLM_TIMEOUT_MS) / 1000.0
         callbacks = []
         tags: list[str] = []

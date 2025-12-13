@@ -111,7 +111,13 @@ class Settings(BaseSettings):
 
     @property
     def LLM_PRIMARY_PROVIDER(self) -> str: # noqa: N802
-        return self.llm.primary_provider
+        provider, _ = self.resolve_response_provider_model()
+        return provider
+
+    @property
+    def LLM_DEFAULT_PROVIDER(self) -> str: # noqa: N802
+        # Alias for clarity: default provider aligns with default model
+        return self.LLM_PRIMARY_PROVIDER
 
     @property
     def LLM_FALLBACK_PROVIDERS(self) -> str: # noqa: N802
@@ -127,7 +133,8 @@ class Settings(BaseSettings):
 
     @property
     def LLM_DEFAULT_MODEL(self) -> str: # noqa: N802
-        return self.llm.default_model
+        _, model = self.resolve_response_provider_model()
+        return model
 
     @property
     def LLM_MAX_TOKENS(self) -> int: # noqa: N802
@@ -136,6 +143,40 @@ class Settings(BaseSettings):
     @property
     def LLM_MODEL(self) -> str: # noqa: N802
         return self.llm.model
+
+    @property
+    def LLM_RESPONSE_PROVIDER(self) -> str | None: # noqa: N802
+        return self.llm.response_provider
+
+    @property
+    def LLM_RESPONSE_MODEL(self) -> str | None: # noqa: N802
+        return self.llm.response_model
+
+    @property
+    def LLM_TITLE_PROVIDER(self) -> str | None: # noqa: N802
+        return self.llm.title_provider
+
+    @property
+    def LLM_TITLE_MODEL(self) -> str | None: # noqa: N802
+        return self.llm.title_model
+
+    # Canonical resolvers (providers/models)
+    def resolve_response_provider_model(self) -> tuple[str, str]:
+        provider = (self.llm.response_provider or self.llm.default_provider).lower()
+        if provider == "openai":
+            model = self.llm.response_model or self.llm.model
+        else:
+            model = self.llm.response_model or self.llm.default_model
+        return provider, model
+
+    def resolve_title_provider_model(self) -> tuple[str, str]:
+        resp_provider, resp_model = self.resolve_response_provider_model()
+        provider = (self.llm.title_provider or resp_provider).lower()
+        if provider == "openai":
+            model = self.llm.title_model or (resp_model if provider == resp_provider else self.llm.model)
+        else:
+            model = self.llm.title_model or (resp_model if provider == resp_provider else self.llm.default_model)
+        return provider, model
 
     @property
     def LLM_TEMPERATURE(self) -> float: # noqa: N802
@@ -148,6 +189,10 @@ class Settings(BaseSettings):
     @property
     def LLM_TOP_P(self) -> float: # noqa: N802
         return self.llm.top_p
+
+    @property
+    def LLM_REASONING_EFFORT_DEFAULT(self) -> str: # noqa: N802
+        return self.llm.reasoning_effort_default
 
     @property
     def MAX_CTX_TOKENS(self) -> int | None: # noqa: N802
