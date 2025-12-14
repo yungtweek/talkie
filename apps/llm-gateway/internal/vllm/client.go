@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -23,6 +24,8 @@ type Client struct {
 
 // OpenAIChatCompletionChunk represents a single SSE chunk for streamed chat completions.
 type OpenAIChatCompletionChunk struct {
+	PromptTokenIDs []int `json:"prompt_token_ids,omitempty"`
+
 	ID      string `json:"id"`
 	Object  string `json:"object"`
 	Created int64  `json:"created"`
@@ -31,6 +34,7 @@ type OpenAIChatCompletionChunk struct {
 	Choices []struct {
 		Index        int    `json:"index"`
 		FinishReason string `json:"finish_reason"`
+		TokenIDs     []int  `json:"token_ids,omitempty"`
 
 		Delta struct {
 			Role    string `json:"role"`
@@ -38,11 +42,11 @@ type OpenAIChatCompletionChunk struct {
 		} `json:"delta"`
 	} `json:"choices"`
 
-	Usage struct {
+	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
+	} `json:"usage,omitempty"`
 }
 
 // NewClient creates a new vLLM client with the given base URL.
@@ -109,6 +113,7 @@ func (c *Client) ChatStream(ctx context.Context, req ChatCompletionRequest, onCh
 
 	// Ensure stream flag is enabled on the outgoing request.
 	req.Stream = true
+	req.ReturnTokenIds = true
 
 	r, err := c.http.R().
 		SetContext(ctx).
@@ -119,7 +124,12 @@ func (c *Client) ChatStream(ctx context.Context, req ChatCompletionRequest, onCh
 		logger.Log.Error("vLLM HTTP stream request failed", zap.Error(err))
 		return fmt.Errorf("vLLM HTTP stream request failed: %w", err)
 	}
-	defer r.RawBody().Close()
+	defer func(body io.ReadCloser) {
+		err := body.Close()
+		if err != nil {
+			logger.Log.Warn("failed to close vLLM stream body", zap.Error(err))
+		}
+	}(r.RawBody())
 
 	if status := r.StatusCode(); status < 200 || status >= 300 {
 		logger.Log.Error("vLLM stream non-2xx status",
@@ -130,8 +140,16 @@ func (c *Client) ChatStream(ctx context.Context, req ChatCompletionRequest, onCh
 
 	scanner := bufio.NewScanner(r.RawBody())
 
+	var computedPromptTokens int
+	var computedCompletionTokens int
+	var hasComputedPromptTokens bool
+	var lastFinishReason string
+	var lastIndex int
+	var sawDone bool
+
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		rawLine := scanner.Text()
+		line := strings.TrimSpace(rawLine)
 		if line == "" {
 			continue
 		}
@@ -141,13 +159,54 @@ func (c *Client) ChatStream(ctx context.Context, req ChatCompletionRequest, onCh
 		}
 
 		payload := strings.TrimPrefix(line, "data: ")
+		logger.Log.Debug("vLLM stream chunk received", zap.String("payload", payload))
 		if payload == "[DONE]" {
+			sawDone = true
+
+			// Emit a final chunk so downstream (worker) can persist final usage/finish state.
+			// vLLM may not include usage on streaming responses; we rely on computed counters here.
+			finalFinishReason := lastFinishReason
+			if finalFinishReason == "" {
+				finalFinishReason = "done"
+			}
+
+			finalChunk := ChatCompletionStreamChunk{
+				Type:             "output_text.done",
+				Text:             "",
+				FinishReason:     finalFinishReason,
+				Index:            lastIndex,
+				PromptTokens:     computedPromptTokens,
+				CompletionTokens: computedCompletionTokens,
+				TotalTokens:      computedPromptTokens + computedCompletionTokens,
+			}
+
+			if err := onChunk(finalChunk); err != nil {
+				logger.Log.Warn("ChatStream callback returned error (final chunk)", zap.Error(err))
+				logger.Log.Warn("vLLM ChatStream terminating with partial usage",
+					zap.Int("prompt_tokens", computedPromptTokens),
+					zap.Int("completion_tokens", computedCompletionTokens),
+					zap.Int("total_tokens", computedPromptTokens+computedCompletionTokens),
+					zap.String("finish_reason", lastFinishReason),
+					zap.Int("index", lastIndex),
+					zap.Bool("saw_done", sawDone),
+				)
+				return err
+			}
+
 			break
 		}
 
 		var raw OpenAIChatCompletionChunk
 		if err := json.Unmarshal([]byte(payload), &raw); err != nil {
 			logger.Log.Error("failed to unmarshal vLLM stream chunk", zap.Error(err))
+			logger.Log.Warn("vLLM ChatStream terminating with partial usage",
+				zap.Int("prompt_tokens", computedPromptTokens),
+				zap.Int("completion_tokens", computedCompletionTokens),
+				zap.Int("total_tokens", computedPromptTokens+computedCompletionTokens),
+				zap.String("finish_reason", lastFinishReason),
+				zap.Int("index", lastIndex),
+				zap.Bool("saw_done", sawDone),
+			)
 			return fmt.Errorf("failed to unmarshal vLLM stream chunk: %w", err)
 		}
 
@@ -156,27 +215,79 @@ func (c *Client) ChatStream(ctx context.Context, req ChatCompletionRequest, onCh
 		}
 
 		choice := raw.Choices[0]
+		lastFinishReason = choice.FinishReason
+		lastIndex = choice.Index
+
+		// If vLLM sends token ids, we can compute usage without any tokenizer in the gateway.
+		// prompt_token_ids typically appears on the first chunk only.
+		if !hasComputedPromptTokens && len(raw.PromptTokenIDs) > 0 {
+			computedPromptTokens = len(raw.PromptTokenIDs)
+			hasComputedPromptTokens = true
+		}
+
+		// token_ids (delta) is per-chunk generation token ids.
+		if len(choice.TokenIDs) > 0 {
+			computedCompletionTokens += len(choice.TokenIDs)
+		}
+
+		// Prefer server-provided usage when present and non-zero; otherwise fall back to computed counts.
+		promptTokens := computedPromptTokens
+		completionTokens := computedCompletionTokens
+		totalTokens := computedPromptTokens + computedCompletionTokens
+
+		if raw.Usage != nil && raw.Usage.TotalTokens > 0 {
+			promptTokens = raw.Usage.PromptTokens
+			completionTokens = raw.Usage.CompletionTokens
+			totalTokens = raw.Usage.TotalTokens
+		}
+
+		logger.Log.Debug("vLLM stream chunk content", zap.String("Content", choice.Delta.Content))
 
 		chunk := ChatCompletionStreamChunk{
-			DeltaText:        choice.Delta.Content,
+			Type:             "output_text.delta",
+			Text:             choice.Delta.Content,
 			FinishReason:     choice.FinishReason,
 			Index:            choice.Index,
-			PromptTokens:     raw.Usage.PromptTokens,
-			CompletionTokens: raw.Usage.CompletionTokens,
-			TotalTokens:      raw.Usage.TotalTokens,
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      totalTokens,
 		}
 
 		if err := onChunk(chunk); err != nil {
 			logger.Log.Warn("ChatStream callback returned error", zap.Error(err))
+			logger.Log.Warn("vLLM ChatStream terminating with partial usage",
+				zap.Int("prompt_tokens", computedPromptTokens),
+				zap.Int("completion_tokens", computedCompletionTokens),
+				zap.Int("total_tokens", computedPromptTokens+computedCompletionTokens),
+				zap.String("finish_reason", lastFinishReason),
+				zap.Int("index", lastIndex),
+				zap.Bool("saw_done", sawDone),
+			)
 			return err
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		logger.Log.Error("vLLM ChatStream scanner error", zap.Error(err))
+		logger.Log.Warn("vLLM ChatStream terminating with partial usage",
+			zap.Int("prompt_tokens", computedPromptTokens),
+			zap.Int("completion_tokens", computedCompletionTokens),
+			zap.Int("total_tokens", computedPromptTokens+computedCompletionTokens),
+			zap.String("finish_reason", lastFinishReason),
+			zap.Int("index", lastIndex),
+			zap.Bool("saw_done", sawDone),
+		)
 		return fmt.Errorf("vLLM stream scanner error: %w", err)
 	}
 
+	logger.Log.Info("vLLM ChatStream finished",
+		zap.Int("prompt_tokens", computedPromptTokens),
+		zap.Int("completion_tokens", computedCompletionTokens),
+		zap.Int("total_tokens", computedPromptTokens+computedCompletionTokens),
+		zap.String("finish_reason", lastFinishReason),
+		zap.Int("index", lastIndex),
+		zap.Bool("saw_done", sawDone),
+	)
 	logger.Log.Debug("vLLM ChatStream completed")
 	return nil
 }

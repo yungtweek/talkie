@@ -54,19 +54,21 @@ class ChatCompletionResponse(_message.Message):
     def __init__(self, output_text: _Optional[str] = ..., finish_reason: _Optional[str] = ..., prompt_tokens: _Optional[int] = ..., completion_tokens: _Optional[int] = ..., total_tokens: _Optional[int] = ..., latency_ms: _Optional[int] = ...) -> None: ...
 
 class ChatCompletionChunkResponse(_message.Message):
-    __slots__ = ("deltaText", "finishReason", "index", "promptTokens", "completionTokens", "totalTokens", "latencyMs")
-    DELTATEXT_FIELD_NUMBER: _ClassVar[int]
-    FINISHREASON_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("type", "text", "finish_reason", "index", "prompt_tokens", "completion_tokens", "total_tokens", "latency_ms")
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    FINISH_REASON_FIELD_NUMBER: _ClassVar[int]
     INDEX_FIELD_NUMBER: _ClassVar[int]
-    PROMPTTOKENS_FIELD_NUMBER: _ClassVar[int]
-    COMPLETIONTOKENS_FIELD_NUMBER: _ClassVar[int]
-    TOTALTOKENS_FIELD_NUMBER: _ClassVar[int]
-    LATENCYMS_FIELD_NUMBER: _ClassVar[int]
-    deltaText: str
-    finishReason: str
+    PROMPT_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    COMPLETION_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    LATENCY_MS_FIELD_NUMBER: _ClassVar[int]
+    type: str
+    text: str
+    finish_reason: str
     index: int
-    promptTokens: int
-    completionTokens: int
-    totalTokens: int
-    latencyMs: int
-    def __init__(self, deltaText: _Optional[str] = ..., finishReason: _Optional[str] = ..., index: _Optional[int] = ..., promptTokens: _Optional[int] = ..., completionTokens: _Optional[int] = ..., totalTokens: _Optional[int] = ..., latencyMs: _Optional[int] = ...) -> None: ...
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    latency_ms: int
+    def __init__(self, type: _Optional[str] = ..., text: _Optional[str] = ..., finish_reason: _Optional[str] = ..., index: _Optional[int] = ..., prompt_tokens: _Optional[int] = ..., completion_tokens: _Optional[int] = ..., total_tokens: _Optional[int] = ..., latency_ms: _Optional[int] = ...) -> None: ...

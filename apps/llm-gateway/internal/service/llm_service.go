@@ -168,7 +168,8 @@ func (s *LLMService) ChatCompletionStream(req *pb.ChatCompletionRequest, stream 
 	// Stream chunks from vLLM to the gRPC client.
 	err := s.client.ChatStream(stream.Context(), vReq, func(chunk vllm.ChatCompletionStreamChunk) error {
 		resp := &pb.ChatCompletionChunkResponse{
-			DeltaText:        chunk.DeltaText,
+			Type:             chunk.Type,
+			Text:             chunk.Text,
 			FinishReason:     chunk.FinishReason,
 			PromptTokens:     int32(chunk.PromptTokens),
 			CompletionTokens: int32(chunk.CompletionTokens),

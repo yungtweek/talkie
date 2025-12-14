@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\tllm.proto\x12\x06llm.v1\"X\n\x0bLlmMetadata\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x10\n\x08trace_id\x18\x02 \x01(\t\x12\x12\n\nsession_id\x18\x03 \x01(\t\x12\x0f\n\x07user_id\x18\x04 \x01(\t\"\xbe\x01\n\x15\x43hatCompletionRequest\x12!\n\x04meta\x18\x01 \x01(\x0b\x32\x13.llm.v1.LlmMetadata\x12\r\n\x05model\x18\x02 \x01(\t\x12\x15\n\rsystem_prompt\x18\x03 \x01(\t\x12\x13\n\x0buser_prompt\x18\x04 \x01(\t\x12\x0f\n\x07\x63ontext\x18\x05 \x01(\t\x12\x13\n\x0btemperature\x18\x06 \x01(\x01\x12\x12\n\nmax_tokens\x18\x07 \x01(\x05\x12\r\n\x05top_p\x18\x08 \x01(\x01\"\xa0\x01\n\x16\x43hatCompletionResponse\x12\x13\n\x0boutput_text\x18\x01 \x01(\t\x12\x15\n\rfinish_reason\x18\x02 \x01(\t\x12\x15\n\rprompt_tokens\x18\x03 \x01(\x05\x12\x19\n\x11\x63ompletion_tokens\x18\x04 \x01(\x05\x12\x14\n\x0ctotal_tokens\x18\x05 \x01(\x05\x12\x12\n\nlatency_ms\x18\x06 \x01(\x03\"\xad\x01\n\x1b\x43hatCompletionChunkResponse\x12\x11\n\tdeltaText\x18\x01 \x01(\t\x12\x14\n\x0c\x66inishReason\x18\x02 \x01(\t\x12\r\n\x05index\x18\x03 \x01(\x05\x12\x14\n\x0cpromptTokens\x18\x04 \x01(\x05\x12\x18\n\x10\x63ompletionTokens\x18\x05 \x01(\x05\x12\x13\n\x0btotalTokens\x18\x06 \x01(\x05\x12\x11\n\tlatencyMs\x18\x07 \x01(\x03\x32\xbb\x01\n\nLlmService\x12O\n\x0e\x43hatCompletion\x12\x1d.llm.v1.ChatCompletionRequest\x1a\x1e.llm.v1.ChatCompletionResponse\x12\\\n\x14\x43hatCompletionStream\x12\x1d.llm.v1.ChatCompletionRequest\x1a#.llm.v1.ChatCompletionChunkResponse0\x01\x42:Z8github.com/yungtweek/talkie/apps/llm-gateway/gen/llm;llmb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\tllm.proto\x12\x06llm.v1\"X\n\x0bLlmMetadata\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x10\n\x08trace_id\x18\x02 \x01(\t\x12\x12\n\nsession_id\x18\x03 \x01(\t\x12\x0f\n\x07user_id\x18\x04 \x01(\t\"\xbe\x01\n\x15\x43hatCompletionRequest\x12!\n\x04meta\x18\x01 \x01(\x0b\x32\x13.llm.v1.LlmMetadata\x12\r\n\x05model\x18\x02 \x01(\t\x12\x15\n\rsystem_prompt\x18\x03 \x01(\t\x12\x13\n\x0buser_prompt\x18\x04 \x01(\t\x12\x0f\n\x07\x63ontext\x18\x05 \x01(\t\x12\x13\n\x0btemperature\x18\x06 \x01(\x01\x12\x12\n\nmax_tokens\x18\x07 \x01(\x05\x12\r\n\x05top_p\x18\x08 \x01(\x01\"\xa0\x01\n\x16\x43hatCompletionResponse\x12\x13\n\x0boutput_text\x18\x01 \x01(\t\x12\x15\n\rfinish_reason\x18\x02 \x01(\t\x12\x15\n\rprompt_tokens\x18\x03 \x01(\x05\x12\x19\n\x11\x63ompletion_tokens\x18\x04 \x01(\x05\x12\x14\n\x0ctotal_tokens\x18\x05 \x01(\x05\x12\x12\n\nlatency_ms\x18\x06 \x01(\x03\"\xbb\x01\n\x1b\x43hatCompletionChunkResponse\x12\x0c\n\x04type\x18\x01 \x01(\t\x12\x0c\n\x04text\x18\x02 \x01(\t\x12\x15\n\rfinish_reason\x18\x03 \x01(\t\x12\r\n\x05index\x18\x04 \x01(\x05\x12\x15\n\rprompt_tokens\x18\x05 \x01(\x05\x12\x19\n\x11\x63ompletion_tokens\x18\x06 \x01(\x05\x12\x14\n\x0ctotal_tokens\x18\x07 \x01(\x05\x12\x12\n\nlatency_ms\x18\x08 \x01(\x03\x32\xbb\x01\n\nLlmService\x12O\n\x0e\x43hatCompletion\x12\x1d.llm.v1.ChatCompletionRequest\x1a\x1e.llm.v1.ChatCompletionResponse\x12\\\n\x14\x43hatCompletionStream\x12\x1d.llm.v1.ChatCompletionRequest\x1a#.llm.v1.ChatCompletionChunkResponse0\x01\x42:Z8github.com/yungtweek/talkie/apps/llm-gateway/gen/llm;llmb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -39,7 +39,7 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_CHATCOMPLETIONRESPONSE']._serialized_start=305
   _globals['_CHATCOMPLETIONRESPONSE']._serialized_end=465
   _globals['_CHATCOMPLETIONCHUNKRESPONSE']._serialized_start=468
-  _globals['_CHATCOMPLETIONCHUNKRESPONSE']._serialized_end=641
-  _globals['_LLMSERVICE']._serialized_start=644
-  _globals['_LLMSERVICE']._serialized_end=831
+  _globals['_CHATCOMPLETIONCHUNKRESPONSE']._serialized_end=655
+  _globals['_LLMSERVICE']._serialized_start=658
+  _globals['_LLMSERVICE']._serialized_end=845
 # @@protoc_insertion_point(module_scope)
