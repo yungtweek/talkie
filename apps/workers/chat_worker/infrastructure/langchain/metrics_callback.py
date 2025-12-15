@@ -45,6 +45,36 @@ def parse_llmresult_metadata(response: LLMResult) -> Dict[str, Any]:
     tokens_out: Optional[int] = None
     total_tokens: Optional[int] = None
 
+    # 0️⃣ llm_output token usage (our vLLM worker path)
+    try:
+        llm_output = getattr(response, "llm_output", None) or {}
+        if isinstance(llm_output, dict):
+            # Prefer explicit model name when present
+            if not model_name:
+                model_name = llm_output.get("model_name") or model_name
+
+            usage_root = (
+                llm_output.get("token_usage")
+                or llm_output.get("usage")
+                or llm_output
+            )
+            if isinstance(usage_root, dict):
+                # Normalize keys across providers
+                tokens_in = (
+                    usage_root.get("prompt_tokens")
+                    or usage_root.get("input_tokens")
+                    or tokens_in
+                )
+                tokens_out = (
+                    usage_root.get("completion_tokens")
+                    or usage_root.get("output_tokens")
+                    or tokens_out
+                )
+                total_tokens = usage_root.get("total_tokens") or total_tokens
+    except Exception:
+        # Best-effort only; fall back to generation parsing
+        pass
+
     # LLMResult.generations: List[List[ChatGeneration | ChatGenerationChunk]]
     for gen_group in response.generations or []:
         for gen in gen_group:
@@ -77,9 +107,9 @@ def parse_llmresult_metadata(response: LLMResult) -> Dict[str, Any]:
 
     return {
         "model_name": model_name,
-        "prompt_tokens": tokens_in,
-        "completion_tokens": tokens_out,
-        "total_tokens": total_tokens,
+        "prompt_tokens": _as_int(tokens_in),
+        "completion_tokens": _as_int(tokens_out),
+        "total_tokens": _as_int(total_tokens),
     }
 
 
@@ -175,14 +205,13 @@ class MetricsCallback(AsyncCallbackHandler):
     async def _emit(self, event: str) -> None:
         """Send metrics to external sink (fallback to log if none provided)."""
         payload = {"event": f"metrics.{event}", **self.snapshot()}
+        logger.debug("emitting metrics: %s", payload)
         if self.sink:
             try:
                 await self.sink(payload)
             except Exception as e:
                 # Sink failure does not block service flow
                 logger.warning("metrics sink failed: %s", e)
-        else:
-            logger.debug(payload)
 
     async def _persist(self) -> None:
         """Persist metrics asynchronously via provided adapter (if available)."""
@@ -273,6 +302,7 @@ class MetricsCallback(AsyncCallbackHandler):
         # Record first token arrival time
         if self._first_token_at is None:
             self._first_token_at = monotonic()
+
         # NOTE: provider token callbacks may deliver partial text chunks that don't map 1:1 to model tokens.
         # Accumulate raw pieces and compute true token length at end using the configured tokenizer.
         self._gen_parts.append(token or "")

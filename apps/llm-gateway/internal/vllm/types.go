@@ -15,6 +15,8 @@ type ChatCompletionRequest struct {
 	MaxTokens   int           `json:"max_tokens,omitempty"`
 	TopP        float64       `json:"top_p,omitempty"`
 	Stream      bool          `json:"stream,omitempty"`
+
+	ReturnTokenIds bool `json:"return_token_ids,omitempty"`
 }
 
 // ChatChoice represents a single choice in the completion response.
@@ -42,7 +44,8 @@ type ChatCompletionResponse struct {
 }
 
 type ChatCompletionStreamChunk struct {
-	DeltaText        string
+	Type             string
+	Text             string
 	FinishReason     string
 	Index            int
 	PromptTokens     int

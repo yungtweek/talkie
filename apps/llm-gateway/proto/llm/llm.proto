@@ -39,13 +39,22 @@ message ChatCompletionResponse {
 }
 
 message ChatCompletionChunkResponse {
-  string deltaText      = 1;  // 이번 청크에서 추가된 텍스트
-  string finishReason   = 2;  // 마지막 청크에서만 세팅
-  int32  index          = 3;  // choice index, 보통 0
-  int32  promptTokens   = 4;  // 마지막 청크에서만 세팅
-  int32  completionTokens = 5;
-  int32  totalTokens    = 6;
-  int64  latencyMs      = 7;  // 옵션: 첫 토큰 또는 전체
+  // OpenAI Responses-style event type
+  // e.g. "response.output_text.delta", "response.completed", "response.error"
+  string type = 1;
+
+  // Streaming payload
+  string text = 2; // delta text for *.delta events
+
+  // Completion metadata (set on final/completed event)
+  string finish_reason = 3;
+  int32  index = 4;
+
+  int32  prompt_tokens = 5;
+  int32  completion_tokens = 6;
+  int32  total_tokens = 7;
+
+  int64  latency_ms = 8; // gateway 기준 end-start ms
 }
 
 // LLM Gateway gRPC 서비스 정의
