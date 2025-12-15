@@ -205,6 +205,7 @@ class MetricsCallback(AsyncCallbackHandler):
     async def _emit(self, event: str) -> None:
         """Send metrics to external sink (fallback to log if none provided)."""
         payload = {"event": f"metrics.{event}", **self.snapshot()}
+        logger.debug("emitting metrics: %s", payload)
         if self.sink:
             try:
                 await self.sink(payload)
@@ -301,6 +302,7 @@ class MetricsCallback(AsyncCallbackHandler):
         # Record first token arrival time
         if self._first_token_at is None:
             self._first_token_at = monotonic()
+
         # NOTE: provider token callbacks may deliver partial text chunks that don't map 1:1 to model tokens.
         # Accumulate raw pieces and compute true token length at end using the configured tokenizer.
         self._gen_parts.append(token or "")

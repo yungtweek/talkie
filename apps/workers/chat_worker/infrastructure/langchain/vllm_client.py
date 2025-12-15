@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from typing import Dict, Tuple, Optional, Iterable, Any, List
 
 import grpc
@@ -135,14 +136,39 @@ class VllmGrpcClient:
         timeout_s = (self.timeout_ms or _settings.LLM_TIMEOUT_MS) / 1000.0
         callbacks = []
         tags: list[str] = []
+        run_id: str = ""
         if config:
-            # Extract callbacks and tags from RunnableConfig
+            # Extract callbacks, tags, and run_id from RunnableConfig
             if isinstance(config, dict):
                 callbacks = list(config.get("callbacks") or [])
                 tags = list(config.get("tags") or [])
+                run_id = str(config.get("run_id") or config.get("metadata", {}).get("run_id") or "")
             else:
                 callbacks = list(getattr(config, "callbacks", []) or [])
                 tags = list(getattr(config, "tags", []) or [])
+                run_id = str(getattr(config, "run_id", "") or getattr(getattr(config, "metadata", None) or {}, "get", lambda _k, _d=None: _d)("run_id"))
+
+        if not run_id:
+            run_id = uuid.uuid4().hex
+
+        # Fire start callbacks once (needed for TTFT/metrics correlation).
+        serialized = {"provider": "vllm", "model": req.model, "transport": "grpc"}
+        # Prompts for LLM-style callbacks (best-effort)
+        prompts = [system_prompt + "\n\n" + user_prompt if system_prompt else user_prompt]
+
+        for cb in callbacks:
+            on_chat_start = getattr(cb, "on_chat_model_start", None)
+            on_llm_start = getattr(cb, "on_llm_start", None)
+
+            if on_chat_start is not None:
+                # Some handlers expect messages rather than prompts; we pass best-effort.
+                result = on_chat_start(serialized, messages, run_id=run_id, tags=tags)
+                if asyncio.iscoroutine(result):
+                    await result
+            elif on_llm_start is not None:
+                result = on_llm_start(serialized, prompts, run_id=run_id, tags=tags)
+                if asyncio.iscoroutine(result):
+                    await result
 
         output_parts: list[str] = []
         end_called = False
@@ -164,7 +190,7 @@ class VllmGrpcClient:
 
                     # TokenStreamCallback is used inside run_coroutine_threadsafe,
                     # so here just await on_token(...) (already async)
-                    await on_token(delta, tags=tags)
+                    await on_token(delta, run_id=run_id, tags=tags)
 
             elif chunk.type == "output_text.done":
                 # Build a proper LLMResult for LangChain callbacks
@@ -198,7 +224,7 @@ class VllmGrpcClient:
                         on_end = getattr(cb, "on_llm_end", None)
                         if on_end is None:
                             continue
-                        result = on_end(llm_result, tags=tags)
+                        result = on_end(llm_result, run_id=run_id, tags=tags)
                         if asyncio.iscoroutine(result):
                             await result
 
@@ -216,7 +242,7 @@ class VllmGrpcClient:
                 on_end = getattr(cb, "on_llm_end", None)
                 if on_end is None:
                     continue
-                result = on_end(llm_result, tags=tags)
+                result = on_end(llm_result, run_id=run_id, tags=tags)
                 if asyncio.iscoroutine(result):
                     await result
 
