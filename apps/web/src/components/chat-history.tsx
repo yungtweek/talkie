@@ -26,6 +26,7 @@ import { MoreHorizontal } from 'lucide-react';
 import { useSessionsActions } from '@/features/chat/chat.sessions.store';
 import { useChatActions } from '@/features/chat/chat.store';
 import { usePathname, useRouter } from 'next/navigation';
+import React from 'react';
 
 export default function ChatHistory() {
   const { user } = useAuthState();
@@ -85,9 +86,33 @@ export default function ChatHistory() {
                     ? 'bg-accent text-accent-foreground'
                     : 'hover:bg-accent/50'
                 }
+                title={edge.node.title?.replace(/^"|"$/g, '')}
                 href={`/chat/${edge.node.id}`}
               >
-                {edge.node.title}
+                {edge.node.title?.replace(/"/g, '') ?? (
+                  <>
+                    <div className="inline-flex gap-1">
+                      <span
+                        className="inline-block animate-bounce"
+                        style={{ animationDelay: '0ms' }}
+                      >
+                        .
+                      </span>
+                      <span
+                        className="inline-block animate-bounce"
+                        style={{ animationDelay: '200ms' }}
+                      >
+                        .
+                      </span>
+                      <span
+                        className="inline-block animate-bounce"
+                        style={{ animationDelay: '400ms' }}
+                      >
+                        .
+                      </span>
+                    </div>
+                  </>
+                )}
               </Link>
             </SidebarMenuButton>
             <DropdownMenu>

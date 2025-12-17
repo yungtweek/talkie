@@ -7,7 +7,7 @@ import {
   SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarTrigger,
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
-import ChatHistory from '@/components/ChatHistory';
+import ChatHistory from '@/components/chat-history';
 import { Folder, Home, LogIn, SquarePen } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuthState } from '@/features/auth/auth.store';
@@ -64,7 +64,11 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link
-                    className="w-full"
+                    className={
+                      pathname === `/chat`
+                        ? 'bg-accent text-accent-foreground'
+                        : 'hover:bg-accent/50'
+                    }
                     href="/chat"
                     onClick={() => {
                       setSelectedSessionId(null);
@@ -78,7 +82,11 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link
-                    className="w-full"
+                    className={
+                      pathname === `/documents`
+                        ? 'bg-accent text-accent-foreground'
+                        : 'hover:bg-accent/50'
+                    }
                     href="/documents"
                     onClick={() => {
                       setSelectedSessionId(null);

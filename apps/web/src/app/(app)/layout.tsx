@@ -2,7 +2,7 @@
 import React, { ReactNode } from 'react';
 
 import { useAuthBootstrap } from '@/features/auth/useAuthBootstrap';
-import Header from '@/components/Header';
+import Header from '@/components/header';
 import ApolloProvider from '@/providers/ApolloProvider';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';
