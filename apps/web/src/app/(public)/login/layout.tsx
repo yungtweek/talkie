@@ -1,7 +1,7 @@
 'use client';
 import React, { ReactNode } from 'react';
 import { clsx } from 'clsx';
-import Header from '@/components/Header';
+import Header from '@/components/header';
 import { SidebarProvider } from '@/components/ui/sidebar';
 
 export default function LoginLayout({ children }: { children: ReactNode }) {
