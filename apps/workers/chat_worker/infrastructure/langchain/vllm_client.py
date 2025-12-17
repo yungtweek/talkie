@@ -192,6 +192,35 @@ class VllmGrpcClient:
                     # so here just await on_token(...) (already async)
                     await on_token(delta, run_id=run_id, tags=tags)
 
+            elif chunk.type == "failed":
+                # Stream-level failure from gateway/mock.
+                # Treat as a terminal error and trigger LangChain error callbacks.
+                error_reason = chunk.finish_reason or "LLM stream failed"
+
+                logger.error(
+                    "LLM stream failed",
+                    extra={
+                        "type": chunk.type,
+                        "finish_reason": error_reason,
+                    },
+                )
+
+                # Fire error callbacks once
+                for cb in callbacks:
+                    on_error = getattr(cb, "on_llm_error", None)
+                    if on_error is None:
+                        continue
+
+                    exc = RuntimeError(error_reason)
+                    result = on_error(exc, run_id=run_id, tags=tags)
+                    if asyncio.iscoroutine(result):
+                        await result
+
+                end_called = True
+                break
+
+
+
             elif chunk.type == "output_text.done":
                 # Build a proper LLMResult for LangChain callbacks
                 output_text = "".join(output_parts)
