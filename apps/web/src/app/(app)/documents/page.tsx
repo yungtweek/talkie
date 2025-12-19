@@ -69,7 +69,6 @@ export default function DocumentsPage() {
             const cacheId = cache.identify({ __typename: 'FileListType', id: fileId });
             cache.evict({ id: cacheId });
             removeFromConnection(cache, { fieldName: 'files', id: fileId });
-            cache.gc();
           },
         });
       } catch (e) {

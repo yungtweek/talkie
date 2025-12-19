@@ -38,6 +38,7 @@ export function removeFromConnection(
       },
     },
   });
+  cache.gc();
 }
 
 export function upsertIntoConnection<

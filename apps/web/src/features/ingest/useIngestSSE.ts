@@ -72,7 +72,6 @@ export function useIngestSSE() {
       if (cacheId) {
         client.cache.evict({ id: cacheId });
         removeFromConnection(client.cache, { fieldName: 'files', id: payload.id });
-        client.cache.gc();
       }
     });
 

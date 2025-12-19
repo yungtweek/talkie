@@ -29,6 +29,7 @@ import { ChatSessionZ } from '@talkie/types-zod';
 import { SESSION_PUBSUB } from '@/modules/infra/pubsub/pubsub.module';
 import { PubSubEngine } from 'graphql-subscriptions';
 import { z } from 'zod';
+import { toCursor } from '@/modules/infra/graphql/utils/cursor';
 
 // --- Realtime session event payloads ---
 export enum SessionEventType {
@@ -91,11 +92,17 @@ export class ChatSessionResolver {
     }
     type ChatSessionNode = z.infer<typeof ChatSessionZ>;
     const nodes: ChatSessionNode[] = parsedResult.data;
+    const toSessionCursor = (n: ChatSessionNode) => {
+      const tsValue = n.lastMessageAt ?? n.createdAt ?? n.updatedAt;
+      const ts = tsValue ? new Date(tsValue) : null;
+      const iso = ts && !Number.isNaN(ts.getTime()) ? ts.toISOString() : new Date(0).toISOString();
+      return toCursor(`${iso}|${n.id}`);
+    };
     const edges = nodes.map(
       (n): { __typename: 'ChatSessionEdge'; node: ChatSession; cursor: string } => ({
         __typename: 'ChatSessionEdge',
         node: n as unknown as ChatSession,
-        cursor: n.id,
+        cursor: toSessionCursor(n),
       }),
     );
     const startCursor = edges.length > 0 ? edges[0].cursor : null;

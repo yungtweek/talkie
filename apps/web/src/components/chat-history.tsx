@@ -1,4 +1,5 @@
 'use client'
+import { NetworkStatus } from '@apollo/client';
 import { useMutation, useQuery } from '@apollo/client/react';
 import {
   ChatSessionListDocument,
@@ -27,8 +28,10 @@ import { useSessionsActions } from '@/features/chat/chat.sessions.store';
 import { useChatActions } from '@/features/chat/chat.store';
 import { usePathname, useRouter } from 'next/navigation';
 import React from 'react';
+import { removeFromConnection } from '@/lib/apollo/connection';
 
 export default function ChatHistory() {
+  const pageSize = 10;
   const { user } = useAuthState();
   const { reset } = useChatActions();
 
@@ -37,10 +40,13 @@ export default function ChatHistory() {
 
   const { selectedSessionId, setSelectedSessionId } = useSessionsActions();
 
-  const { data } = useQuery<ChatSessionListQuery, ChatSessionListQueryVariables>(
+  const { data, fetchMore, networkStatus } = useQuery<
+    ChatSessionListQuery,
+    ChatSessionListQueryVariables
+  >(
     ChatSessionListDocument,
     {
-      variables: { first: 50 },
+      variables: { first: pageSize },
       fetchPolicy: 'cache-and-network',
       notifyOnNetworkStatusChange: true,
       skip: !user,
@@ -51,6 +57,9 @@ export default function ChatHistory() {
   );
 
   const edges = user ? data?.chatSessionList.edges ?? [] : [];
+  const pageInfo = user ? data?.chatSessionList.pageInfo : undefined;
+  const hasNextPage = Boolean(pageInfo?.hasNextPage);
+  const isLoadingMore = networkStatus === NetworkStatus.fetchMore;
 
   const deleteSession = async (sessionId: string) => {
     try {
@@ -64,8 +73,15 @@ export default function ChatHistory() {
             status: 'deleting',
           },
         },
-        refetchQueries: [{ query: ChatSessionListDocument }],
-        awaitRefetchQueries: true,
+        update: (cache, _result, { variables }) => {
+          const targetSessionId = variables?.sessionId;
+          if (!targetSessionId) return;
+          removeFromConnection(cache, { fieldName: 'chatSessionList', id: targetSessionId });
+          const cacheId = cache.identify({ __typename: 'ChatSession', id: targetSessionId });
+          if (cacheId) {
+            cache.evict({ id: cacheId });
+          }
+        },
       });
     } catch (e) {
       console.error('delete session  mutation failed', e);
@@ -73,6 +89,35 @@ export default function ChatHistory() {
     }
   };
 
+  const loadMoreSessions = async () => {
+    if (!hasNextPage || !pageInfo?.endCursor || isLoadingMore) return;
+    try {
+      await fetchMore({
+        variables: {
+          first: pageSize,
+          after: pageInfo.endCursor,
+        },
+        updateQuery: (prev, { fetchMoreResult }) => {
+          if (!fetchMoreResult?.chatSessionList) return prev;
+          const existingEdges = prev.chatSessionList.edges ?? [];
+          const incomingEdges = fetchMoreResult.chatSessionList.edges ?? [];
+          const seenIds = new Set(existingEdges.map(edge => edge.node.id));
+          const mergedEdges = existingEdges.concat(
+            incomingEdges.filter(edge => !seenIds.has(edge.node.id)),
+          );
+          return {
+            chatSessionList: {
+              __typename: prev.chatSessionList.__typename,
+              edges: mergedEdges,
+              pageInfo: fetchMoreResult.chatSessionList.pageInfo,
+            },
+          };
+        },
+      });
+    } catch (e) {
+      console.error('load more sessions failed', e);
+    }
+  };
 
   return (
     <SidebarMenu className={'flex flex-col gap-2'}>
@@ -124,11 +169,12 @@ export default function ChatHistory() {
               </DropdownMenuTrigger>
               <DropdownMenuContent side="right" align="start">
                 <DropdownMenuItem
-                  onClick={() => {
+                  onSelect={() => {
                     const wasCurrent = selectedSessionId === edge.node.id;
                     void deleteSession(edge.node.id);
                     if (wasCurrent) {
                       reset();
+                      setSelectedSessionId(null);
                       router.push('/');
                     }
                   }}
@@ -140,6 +186,17 @@ export default function ChatHistory() {
           </div>
         </SidebarMenuItem>
       ))}
+      {hasNextPage ? (
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            className="text-muted-foreground justify-center"
+            disabled={isLoadingMore}
+            onClick={() => void loadMoreSessions()}
+          >
+            {isLoadingMore ? 'Loading...' : 'Load more'}
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      ) : null}
     </SidebarMenu>
   );
 }
