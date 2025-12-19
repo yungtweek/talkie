@@ -1,14 +1,14 @@
 // apps/gateway/src/graphql/utils/cursor.ts
 import { Buffer } from 'buffer';
 /**
- * Convert a numeric index into a Base64-encoded cursor string.
- * Typically used for simple offset-based pagination.
+ * Convert a value into a Base64-encoded cursor string.
+ * Typically used for simple offset-based pagination or custom keyset cursors.
  *
- * @param idx - Numeric index value
+ * @param value - Cursor value (number or string)
  * @returns Base64 cursor string
  */
-export const toCursor = (idx: number) => {
-  return Buffer.from(String(idx)).toString('base64');
+export const toCursor = (value: number | string) => {
+  return Buffer.from(String(value)).toString('base64');
 };
 
 /**

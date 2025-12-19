@@ -2,6 +2,24 @@
 import { ChatSessionMetaFragment, ChatSessionMetaFragmentDoc } from '@/gql/graphql';
 import { ApolloCache, type Reference } from '@apollo/client';
 
+const toCursor = (value: string) => {
+  if (typeof window !== 'undefined' && typeof window.btoa === 'function') {
+    return window.btoa(value);
+  }
+  if (typeof globalThis !== 'undefined' && typeof globalThis.btoa === 'function') {
+    return globalThis.btoa(value);
+  }
+  const buffer = (globalThis as {
+    Buffer?: { from: (value: string, encoding: string) => { toString: (enc: string) => string } };
+  }).Buffer;
+  return buffer ? buffer.from(value, 'utf8').toString('base64') : value;
+};
+
+const sessionToCursor = (session: ChatSessionMetaFragment) => {
+  const createdAt = session.createdAt ?? new Date().toISOString();
+  return toCursor(`${createdAt}|${session.id}`);
+};
+
 export const writeSessionMeta = (cache: ApolloCache, session: ChatSessionMetaFragment) => {
   const cacheId = cache.identify({ __typename: 'ChatSession', id: session.id });
   cache.writeFragment<ChatSessionMetaFragment>({
@@ -26,9 +44,10 @@ export const modifySessionMeta = (cache: ApolloCache, session: ChatSessionMetaFr
           id: session.id,
         });
         const nodeRef: Reference | null = nodeId ? ({ __ref: nodeId } as Reference) : null;
+        const cursor = sessionToCursor(session);
         const edge = {
           __typename: 'ChatSessionEdge',
-          cursor: session.id,
+          cursor,
           node: nodeRef,
         };
         if (!existing) {
@@ -39,8 +58,8 @@ export const modifySessionMeta = (cache: ApolloCache, session: ChatSessionMetaFr
               __typename: 'PageInfo',
               hasPreviousPage: false,
               hasNextPage: false,
-              startCursor: session.id,
-              endCursor: session.id,
+              startCursor: cursor,
+              endCursor: cursor,
             },
           };
         }
@@ -49,15 +68,21 @@ export const modifySessionMeta = (cache: ApolloCache, session: ChatSessionMetaFr
           ? edges.some((e: any) => e?.node?.__ref === (nodeRef as any).__ref)
           : false;
         const nextEdges = nodeRef ? (already ? edges : [edge, ...edges]) : edges;
-        const startCursor = nextEdges.length ? nextEdges[0].cursor : null;
-        const endCursor = nextEdges.length ? nextEdges[nextEdges.length - 1].cursor : null;
+        const prevPageInfo = existing.pageInfo ?? {};
+        const firstEdgeCursor = nextEdges.length ? nextEdges[0]?.cursor ?? null : null;
+        const lastEdgeCursor = nextEdges.length
+          ? nextEdges[nextEdges.length - 1]?.cursor ?? null
+          : null;
+        const startCursor =
+          !already && nodeRef ? cursor : prevPageInfo.startCursor ?? firstEdgeCursor ?? null;
+        const endCursor = prevPageInfo.endCursor ?? lastEdgeCursor ?? null;
         return {
           __typename: 'ChatSessionConnection',
           edges: nextEdges,
           pageInfo: {
             __typename: 'PageInfo',
-            hasPreviousPage: false,
-            hasNextPage: existing.pageInfo?.hasNextPage ?? false,
+            hasPreviousPage: prevPageInfo.hasPreviousPage ?? false,
+            hasNextPage: prevPageInfo.hasNextPage ?? false,
             startCursor,
             endCursor,
           },

@@ -6,6 +6,7 @@ import { useChatSessionStream } from '@/features/chat/useChatSessionStream';
 import { useChatUI } from '@/providers/ChatProvider';
 import { useChatState } from '@/features/chat/chat.store';
 import { ChatEdge } from '@/features/chat/chat.types';
+import { Greeting } from '@/components/chat/Greeting';
 
 export default function MessagesPane() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -44,6 +45,7 @@ export default function MessagesPane() {
   return (
     <div className={clsx('h-full min-h-0 w-full flex-1 overflow-auto mx-auto')} ref={containerRef}>
       <div className="w-full max-w-4xl mx-auto px-4 ">
+        {messages.length ===0 && <Greeting />}
         <div className={clsx('flex min-h-full flex-col gap-9 pb-24')}>
           <>
             {messages.map((chat, i) => (

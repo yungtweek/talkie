@@ -1,4 +1,9 @@
-.PHONY: dev web gateway static api up down worker-chat all-node workers start-all
+.PHONY: dev web gateway static api up down worker-chat all-node workers start-all dev-all
+
+ # Run web, gateway, and chat worker together (dev)
+dev-all:
+	@echo "🚀 Starting web, gateway, and chat worker..."
+	@make -j3 web gateway worker-chat
 COMPOSE := docker compose -f infra/docker/docker-compose.dev.yml
 
 web:
@@ -10,9 +15,6 @@ gateway:
 llm-gateway:
 	@echo "🔧 Building llm-gateway..."
 	@cd apps/llm-gateway && go run ./cmd/llm-gateway
-
-static:
-	pnpm --filter @talkie/static dev
 
 codegen:
 	pnpm --filter @talkie/web gql:gen
