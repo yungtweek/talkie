@@ -1,7 +1,7 @@
 # apps/workers/chat_worker/domain/ports/chat_repo.py
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Any, Mapping, Optional, Tuple
+from typing import Any, Mapping, Optional, Sequence, Tuple
 
 
 class ChatRepositoryPort(ABC):
@@ -67,6 +67,23 @@ class ChatRepositoryPort(ABC):
           - INSERT into `chat_messages` with role='assistant', mode=mode, message_index=next_index, turn=current_turn, status='done'
           - ON CONFLICT (job_id) DO UPDATE SET content/sources/usage/status/trace_id/mode
           - RETURN (message_id, message_index, turn)
+        """
+        ...
+
+    # -------------------------
+    # Message citations (RAG)
+    # -------------------------
+    @abstractmethod
+    async def save_message_citations(
+            self,
+            *,
+            message_id: str,
+            session_id: str,
+            citations: Sequence[Mapping[str, Any]],
+    ) -> None:
+        """Persist normalized RAG citations for a message.
+
+        Implementations should be idempotent and avoid duplicate rows.
         """
         ...
 

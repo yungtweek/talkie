@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Mapping, Optional, Tuple
+from typing import Any, Mapping, Optional, Sequence, Tuple
 
 import asyncpg
 
@@ -133,6 +133,107 @@ class PostgresChatRepo(ChatRepositoryPort):
 
         # asyncpg.Record -> tuple
         return str(rec["id"]), int(rec["message_index"]), int(rec["turn"])
+
+    # -------------------------
+    # Message citations (RAG)
+    # -------------------------
+    async def save_message_citations(
+            self,
+            *,
+            message_id: str,
+            session_id: str,
+            citations: Sequence[Mapping[str, Any]],
+    ) -> None:
+        if not citations:
+            return
+
+        rows: list[Tuple[str, str, str, str, Optional[str], str, Optional[int], Optional[str], Optional[float]]] = []
+        seen_chunk: set[Tuple[str, int]] = set()
+        seen_source: set[str] = set()
+
+        def _pick(item: Mapping[str, Any], *keys: str) -> Any:
+            meta = item.get("metadata")
+            meta = meta if isinstance(meta, Mapping) else {}
+            for key in keys:
+                if key in item and item.get(key) is not None:
+                    return item.get(key)
+                if key in meta and meta.get(key) is not None:
+                    return meta.get(key)
+            return None
+
+        for item in citations:
+            if not isinstance(item, Mapping):
+                continue
+            source_id = _pick(item, "source_id", "sourceId", "id")
+            file_name = _pick(item, "file_name", "fileName", "filename", "title", "source")
+            file_uri = _pick(item, "file_uri", "fileUri", "uri", "url")
+            chunk_id = _pick(item, "chunk_id", "chunkId", "chunk")
+            page = _pick(item, "page", "page_number", "pageNumber")
+            snippet = _pick(item, "snippet", "text", "excerpt")
+            rerank_score = _pick(item, "rerank_score", "rerankScore", "score")
+
+            if source_id is None or file_name is None or chunk_id is None:
+                continue
+
+            try:
+                page_val = int(page) if page is not None else None
+            except Exception:
+                page_val = None
+
+            try:
+                score_val = float(rerank_score) if rerank_score is not None else None
+            except Exception:
+                score_val = None
+
+            chunk_key = (str(chunk_id), page_val if page_val is not None else -1)
+            if chunk_key in seen_chunk:
+                continue
+            if str(source_id) in seen_source:
+                continue
+            seen_chunk.add(chunk_key)
+            seen_source.add(str(source_id))
+
+            rows.append(
+                (
+                    message_id,
+                    session_id,
+                    str(source_id),
+                    str(file_name),
+                    str(file_uri) if file_uri is not None else None,
+                    str(chunk_id),
+                    page_val,
+                    str(snippet) if snippet is not None else None,
+                    score_val,
+                )
+            )
+
+        if not rows:
+            return
+
+        insert_sql = (
+            """
+            INSERT INTO message_citations (
+                message_id,
+                session_id,
+                source_id,
+                file_name,
+                file_uri,
+                chunk_id,
+                page,
+                snippet,
+                rerank_score
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+            """
+        )
+
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "DELETE FROM message_citations WHERE message_id = $1;",
+                    message_id,
+                )
+                await conn.executemany(insert_sql, rows)
 
     # -------------------------
     # Job status updates (optional)

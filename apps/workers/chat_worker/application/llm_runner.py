@@ -48,6 +48,7 @@ async def llm_runner(
     """
 
     _nonstream_text: Optional[str] = None
+    sources_payload: Optional[dict] = None
 
     # Forward events to the primary publisher, and optionally mirror to an event sink (on_event)
     async def _publish_with_sink(event: dict):
@@ -83,10 +84,26 @@ async def llm_runner(
 
     # Invoke either the provided chain or the raw LLM with streaming callbacks attached
     async def _invoke():
+        nonlocal sources_payload
         # Configure callbacks for streaming tokens and metrics
         config = RunnableConfig(callbacks=[token_stream_cb, metric_cb], tags=["final_answer"])
         if chain is not None:
-            prompt_value = await chain.ainvoke(chain_input or {})
+            result = await chain.ainvoke(chain_input or {})
+            if isinstance(result, dict) and "prompt" in result:
+                prompt_value = result["prompt"]
+                citations = result.get("citations")
+                if citations is not None:
+                    sources_payload = {"citations": citations}
+                    await _publish_with_sink(
+                        {
+                            "event": "sources",
+                            "jobId": job_id,
+                            "userId": user_id,
+                            **sources_payload,
+                        }
+                    )
+            else:
+                prompt_value = result
             # Execute asynchronously and stream through callbacks
             await llm.astream(prompt_value.to_messages(), config)
         else:
@@ -142,7 +159,10 @@ async def llm_runner(
             # Retrieve final aggregated text (if any) from the token stream callback
             final = token_stream_cb.final_text() or _nonstream_text
             if on_done is not None and final is not None:
-                await on_done(final)
+                if sources_payload is not None:
+                    await on_done(final, sources=sources_payload)
+                else:
+                    await on_done(final)
             return final
         except asyncio.TimeoutError:
             # Timeout occurred — emit error and terminal done, then return best-effort final text
@@ -159,12 +179,18 @@ async def llm_runner(
             # Retrieve final aggregated text (if any) from the token stream callback
             final = token_stream_cb.final_text() or _nonstream_text
             if on_done is not None and final is not None:
-                await on_done(final)
+                if sources_payload is not None:
+                    await on_done(final, sources=sources_payload)
+                else:
+                    await on_done(final)
             return final
     else:
         await _guarded_invoke()
         # Retrieve final aggregated text (if any) from the token stream callback
         final = token_stream_cb.final_text() or _nonstream_text
         if on_done is not None and final is not None:
-            await on_done(final)
+            if sources_payload is not None:
+                await on_done(final, sources=sources_payload)
+            else:
+                await on_done(final)
         return final

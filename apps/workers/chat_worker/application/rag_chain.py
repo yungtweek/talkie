@@ -115,7 +115,7 @@ class RagPipeline:
             logger.warning("[RAG] rerank failed: %s", e)
             return list(docs)
 
-    def join_context(self, docs: List[Document]) -> str:
+    def join_context(self, docs: List[Document]) -> tuple[str, list[dict[str, Any]]]:
         """
         Pack documents into a single context string with file and section headers.
         Respects the context budget and logs skipped chunks if the budget is exceeded.
@@ -126,7 +126,23 @@ class RagPipeline:
             docs = [d if isinstance(d, Document) else Document.from_langchain(d) for d in docs]
 
         buf, total = [], 0
+        citations: list[dict[str, Any]] = []
         budget = self.max_context
+
+        def _snippet(text: str, max_chars: int = 240) -> str:
+            compact = " ".join((text or "").split())
+            if len(compact) <= max_chars:
+                return compact
+            return compact[: max_chars - 3] + "..."
+
+        def _as_float(val: Any) -> Optional[float]:
+            if val is None:
+                return None
+            try:
+                return float(val)
+            except Exception:
+                return None
+
         for d in docs:
             txt = d.page_content or ""
             title = d.title or (d.metadata.get("filename") if isinstance(d.metadata, dict) else None) or "Untitled"
@@ -159,7 +175,38 @@ class RagPipeline:
             buf.append(f"[{title}]{' > ' + section if section else ''}\n{txt}\n")
             total += ln
 
-        return "\n---\n".join(buf)
+            source_id = f"S{len(citations) + 1}"
+            chunk_id = (
+                d.chunk_id
+                or (md.get("chunk_id") if isinstance(md, dict) else None)
+                or (md.get("id") if isinstance(md, dict) else None)
+                or d.doc_id
+            )
+            page = d.page if d.page is not None else (md.get("page") if isinstance(md, dict) else None)
+            uri = d.uri or (md.get("uri") if isinstance(md, dict) else None) or (md.get("url") if isinstance(md, dict) else None)
+            rerank_score = None
+            if isinstance(md, dict) and md.get("rerank_score") is not None:
+                rerank_score = _as_float(md.get("rerank_score"))
+            if rerank_score is None:
+                rerank_score = _as_float(md.get("score")) or _as_float(d.score)
+            snippet = d.snippet or (md.get("snippet") if isinstance(md, dict) else None) or _snippet(txt)
+
+            citations.append(
+                {
+                    "id": source_id,
+                    "source_id": source_id,
+                    "title": title,
+                    "file_name": title,
+                    "uri": uri,
+                    "chunk_id": chunk_id,
+                    "page": page,
+                    "snippet": snippet,
+                    "rerank_score": rerank_score,
+                    "score": rerank_score,
+                }
+            )
+
+        return "\n---\n".join(buf), citations
 
     # ---------------- Retriever/Chain Builder ----------------
     def build_retriever(self, *, top_k: int | None = None, mmq: int | None = None,
@@ -264,10 +311,11 @@ class RagPipeline:
                 return {
                     "question": q,
                     "context": "No relevant documents were found. Providing a general answer to the question.",
+                    "citations": [],
                 }
 
-            context = self.join_context(compressed_docs)
-            return {"question": q, "context": context}
+            context, citations = self.join_context(compressed_docs)
+            return {"question": q, "context": context, "citations": citations}
 
         def _log_prompt_value(pv):
             """
@@ -288,9 +336,15 @@ class RagPipeline:
                     logger.debug("[PROMPT_RAW] %s", pv)
             return pv
 
+        async def _with_prompt(inputs: Dict[str, Any]):
+            prompt_value = await self.prompt.ainvoke(
+                {"question": inputs["question"], "context": inputs["context"]}
+            )
+            return {"prompt": prompt_value, "citations": inputs.get("citations")}
+
         return (
                 RunnableLambda(_with_context)
-                | self.prompt
+                | RunnableLambda(_with_prompt)
         )
 
 def make_rag_chain(
