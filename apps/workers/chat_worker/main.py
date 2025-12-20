@@ -14,6 +14,10 @@ from langchain_openai import OpenAIEmbeddings
 
 from chat_worker.application.dto.requests import ChatRequest, TitleRequest
 from chat_worker.application.rag_chain import RagPipeline
+from chat_worker.application.rag.postprocessors.reranker import (
+    LangchainAsyncReranker,
+    LangchainReranker,
+)
 from chat_worker.application.services.chat_history_service import ChatHistoryService
 from chat_worker.application.services.chat_llm_service import ChatLLMService
 from chat_worker.application.services.chat_title_service import ChatTitleService
@@ -98,6 +102,7 @@ async def main():
     # Resolve provider/model per role (response vs. title)
     response_provider, response_model = settings.resolve_response_provider_model()
     title_provider, title_model = settings.resolve_title_provider_model()
+    rerank_provider, rerank_model = settings.resolve_rerank_provider_model()
 
     log.info(
         "LLM config resolved",
@@ -106,17 +111,38 @@ async def main():
             "response_model": response_model,
             "title_provider": title_provider,
             "title_model": title_model,
+            "rerank_provider": rerank_provider,
+            "rerank_model": rerank_model,
         },
     )
 
     llm_client = await _build_llm_client(response_provider, response_model)
     llm_adapter = LangchainLlmAdapter(llm_client)
 
-
     if title_provider == response_provider and title_model == response_model:
+        title_llm_client = llm_client
         title_llm_adapter = llm_adapter
     else:
-        title_llm_adapter = LangchainLlmAdapter(await _build_llm_client(title_provider, title_model))
+        title_llm_client = await _build_llm_client(title_provider, title_model)
+        title_llm_adapter = LangchainLlmAdapter(title_llm_client)
+
+    if rerank_provider == response_provider and rerank_model == response_model:
+        rerank_llm_client = llm_client
+    elif rerank_provider == title_provider and rerank_model == title_model:
+        rerank_llm_client = title_llm_client
+    else:
+        rerank_llm_client = await _build_llm_client(rerank_provider, rerank_model)
+
+    reranker = None
+    if hasattr(rerank_llm_client, "ainvoke"):
+        reranker = LangchainAsyncReranker(rerank_llm_client)
+    elif hasattr(rerank_llm_client, "invoke"):
+        reranker = LangchainReranker(rerank_llm_client)
+    else:
+        log.warning(
+            "Rerank LLM does not support invoke/ainvoke; rerank disabled",
+            extra={"rerank_provider": rerank_provider, "rerank_model": rerank_model},
+        )
 
     # Warm-up/health probe (optional)
     r = await redis.info()
@@ -137,7 +163,8 @@ async def main():
         settings=settings.RAG,  # ← inject sub-config explicitly
         client=weaviate_client,  # (optional) v4 client
         embeddings=embeddings,  # (optional) embeddings
-        text_key="text"
+        text_key="text",
+        reranker=reranker,
     )
     rag_chain = pipeline.build()  # 🔁 build once; reuse per request
 

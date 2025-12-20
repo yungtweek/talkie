@@ -1,0 +1,14 @@
+aiokafka==0.12.0
+asyncpg==0.30.0
+charset-normalizer==3.4.4
+grpcio==1.76.0
+langchain==0.3.27
+langchain-core==0.3.79
+langchain-openai==0.3.35
+openai==2.5.0
+protobuf==6.33.0
+pydantic==2.12.3
+pydantic-settings==2.11.0
+redis==6.4.0
+uvicorn
+weaviate-client==4.17.0
