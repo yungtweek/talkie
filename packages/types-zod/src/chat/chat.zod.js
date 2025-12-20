@@ -17,4 +17,5 @@ exports.ChatMessageZ = zod_1.z.object({
     messageIndex: zod_1.z.number().int(),
     turn: zod_1.z.number().int(),
     sourcesJson: zod_1.z.unknown().nullable().optional(),
+    citationsJson: zod_1.z.unknown().nullable().optional(),
 });

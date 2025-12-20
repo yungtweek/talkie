@@ -16,6 +16,7 @@ export default function MessagesPane() {
   const { busy } = useChatState();
 
   useEffect(() => {
+    console.log('messages changed', messages);
     if (!awaitingFirstToken) return;
     const last = messages[messages.length - 1];
     if (last?.node?.role === 'assistant' && (last?.node?.content?.trim()?.length ?? 0) > 0) {

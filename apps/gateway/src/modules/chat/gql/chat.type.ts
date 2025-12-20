@@ -11,6 +11,7 @@ export class Message {
   @Field(() => Int) turn!: number;
   @Field(() => Int) messageIndex!: number;
   @Field({ nullable: true }) sourcesJson?: string;
+  @Field({ nullable: true }) citationsJson?: string;
 }
 
 @ObjectType()

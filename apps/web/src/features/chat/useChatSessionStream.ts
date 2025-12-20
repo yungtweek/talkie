@@ -38,7 +38,7 @@ export function useChatSessionStream(sessionId: string | null) {
   const router = useRouter();
   const pathname = usePathname();
   const { messages, loading, error, setBusy } = useChatState();
-  const { add, reset, setRag, getRag, updateStream } = useChatActions();
+  const { add, reset, setRag, getRag, updateStream, updateSources } = useChatActions();
   const hasMeta = useRef(false);
   const { adoptNewSession } = useChatUI();
   const client = useApolloClient();
@@ -138,6 +138,7 @@ export function useChatSessionStream(sessionId: string | null) {
         // Open SSE stream for assistant's incremental response
         openChatStream(jobId, {
           onText: chunk => updateStream(chunk, jobId),
+          onSources: sources => updateSources(sources, jobId),
           onDone: () => {
             hasMeta.current = false;
 

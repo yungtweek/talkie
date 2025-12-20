@@ -34,5 +34,6 @@ export const ChatMessageZ = z.object({
   messageIndex: z.number().int(),
   turn: z.number().int(),
   sourcesJson: z.unknown().nullable().optional(),
+  citationsJson: z.unknown().nullable().optional(),
 });
 export type ChatMessageZod = z.infer<typeof ChatMessageZ>;

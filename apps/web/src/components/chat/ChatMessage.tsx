@@ -7,6 +7,7 @@ import rehypeSanitize from 'rehype-sanitize';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ChatEdge } from '@/features/chat/chat.types';
+import { safeJsonParse } from '@/lib/utils';
 
 export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDots?: boolean }) {
   const CodeBlock = ({ className, children, node, ...props }: any) => {
@@ -55,13 +56,29 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
         ? 'w-full px-6 py-3'
         : '';
 
+  const citations = safeJsonParse<{
+    citations?: Array<{
+      title?: string;
+      snippet?: string;
+      file_name?: string;
+      source_id?: string;
+      rerank_score?: number;
+    }>;
+  }>(chat.node.sourcesJson, { citations: [] }).citations ?? [];
+
   return (
     <div className={clsx(roleClass, 'prose')} role={chat.node.role}>
       {showDots && (
         <div className="mt-0 inline-flex gap-1">
-          <span className="inline-block animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
-          <span className="inline-block animate-bounce" style={{ animationDelay: '200ms' }}>.</span>
-          <span className="inline-block animate-bounce" style={{ animationDelay: '400ms' }}>.</span>
+          <span className="inline-block animate-bounce" style={{ animationDelay: '0ms' }}>
+            .
+          </span>
+          <span className="inline-block animate-bounce" style={{ animationDelay: '200ms' }}>
+            .
+          </span>
+          <span className="inline-block animate-bounce" style={{ animationDelay: '400ms' }}>
+            .
+          </span>
         </div>
       )}
       <ReactMarkdown
@@ -79,6 +96,25 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
       >
         {chat.node.content}
       </ReactMarkdown>
+      {citations.length > 0 && (
+        <div className="mt-4 rounded-xl border border-border bg-muted/40 p-4">
+          <div className="mb-2 text-sm font-semibold text-muted-foreground">Sources</div>
+          <ul className="space-y-3">
+            {citations.map((c, i) => (
+              <li key={c.source_id ?? i} className="text-sm">
+                <div className="font-medium">
+                  {c.title || c.file_name || 'Untitled source'}
+                </div>
+                {c.snippet && (
+                  <div className="mt-1 line-clamp-3 text-muted-foreground">
+                    {c.snippet}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
