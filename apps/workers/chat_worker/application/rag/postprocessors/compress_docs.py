@@ -97,6 +97,19 @@ def doc_score(d: Document) -> float:
     return float("-inf")
 
 
+def doc_rerank_score(d: Document) -> float:
+    """
+    Return rerank score if present; otherwise -inf.
+    """
+    meta = d.metadata if isinstance(d.metadata, dict) else {}
+    if meta.get("rerank_score") is not None:
+        try:
+            return float(meta["rerank_score"])
+        except Exception:
+            return float("-inf")
+    return float("-inf")
+
+
 def doc_rank(d: Document) -> int:
     """
     Return original retrieval rank if available; higher value means worse rank.
@@ -144,6 +157,17 @@ def compress_docs(
             else:
                 md = {}
         d.metadata = md
+
+    # --- detect rerank results and preserve rerank order for tie-breaking ---
+    has_rerank = False
+    rerank_pos: dict[Any, int] = {}
+    for i, d in enumerate(docs):
+        k = doc_stable_key(d)
+        if k not in rerank_pos:
+            rerank_pos[k] = i
+        md = d.metadata if isinstance(d.metadata, dict) else {}
+        if md.get("rerank_score") is not None:
+            has_rerank = True
 
     DC, EF = DocumentCompressorPipeline, EmbeddingsFilter
     filtered = None
@@ -224,8 +248,17 @@ def compress_docs(
     # Maximizes recall at the cost of longer context.
     kept = list(kept)
 
-    # Restore stable order by original score, then rank.
-    kept = sorted(kept, key=lambda d: (-doc_score(d), doc_rank(d)))
+    # Restore stable order, preferring rerank scores when available.
+    if has_rerank:
+        kept = sorted(
+            kept,
+            key=lambda d: (
+                -doc_rerank_score(d),
+                rerank_pos.get(doc_stable_key(d), 10**9),
+            ),
+        )
+    else:
+        kept = sorted(kept, key=lambda d: (-doc_score(d), doc_rank(d)))
 
     # --- trim to context budget ---
     out, total = [], 0
