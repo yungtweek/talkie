@@ -27,6 +27,38 @@ except Exception:
 logger = getLogger("RagPipeline")
 
 
+def _doc_id_for_log(d: Any) -> str:
+    md = d.metadata if isinstance(getattr(d, "metadata", None), dict) else {}
+    return str(md.get("chunk_id") or md.get("id") or getattr(d, "doc_id", None) or "<no-id>")
+
+
+def _doc_file_for_log(d: Any) -> str:
+    md = d.metadata if isinstance(getattr(d, "metadata", None), dict) else {}
+    return str(md.get("filename") or md.get("source") or getattr(d, "title", None) or "<no-file>")
+
+
+def _doc_summary_for_log(d: Any) -> str:
+    md = d.metadata if isinstance(getattr(d, "metadata", None), dict) else {}
+    rid = _doc_id_for_log(d)
+    fn = _doc_file_for_log(d)
+    rr = md.get("rerank_score")
+    os = md.get("__orig_score") if md.get("__orig_score") is not None else md.get("score")
+    orank = md.get("__orig_rank")
+    ln = len(getattr(d, "page_content", "") or "")
+    return f"id={rid} rr={rr} orig_score={os} orig_rank={orank} len={ln} file={fn}"
+
+
+def _log_docs(prefix: str, docs: Sequence[Any], *, limit: int = 12) -> None:
+    try:
+        logger.debug("%s count=%s", prefix, len(docs))
+        for i, d in enumerate(docs[:limit], start=1):
+            logger.debug("%s[%02d] %s", prefix, i, _doc_summary_for_log(d))
+        if len(docs) > limit:
+            logger.debug("%s ... (%s more)", prefix, len(docs) - limit)
+    except Exception:
+        pass
+
+
 def doc_stable_key(d: Any):
     """
     Return a stable, hashable key for a document or chunk.
@@ -169,6 +201,9 @@ def compress_docs(
         if md.get("rerank_score") is not None:
             has_rerank = True
 
+    _log_docs("[RAG][compress][input]", docs)
+    logger.debug("[RAG][compress] has_rerank=%s", has_rerank)
+
     DC, EF = DocumentCompressorPipeline, EmbeddingsFilter
     filtered = None
     used_thresh = None
@@ -248,6 +283,8 @@ def compress_docs(
     # Maximizes recall at the cost of longer context.
     kept = list(kept)
 
+    _log_docs("[RAG][compress][kept-pre-sort]", kept)
+
     # Restore stable order, preferring rerank scores when available.
     if has_rerank:
         kept = sorted(
@@ -260,18 +297,46 @@ def compress_docs(
     else:
         kept = sorted(kept, key=lambda d: (-doc_score(d), doc_rank(d)))
 
+    if has_rerank:
+        _log_docs("[RAG][compress][kept-post-sort][by-rerank]", kept)
+    else:
+        _log_docs("[RAG][compress][kept-post-sort][by-orig]", kept)
+
     # --- trim to context budget ---
     out, total = [], 0
     for d in kept:
         ln = len(d.page_content or "")
         if max_context is not None and total + ln > max_context:
+            try:
+                logger.debug(
+                    "[RAG][compress][budget-skip] total=%s add=%s max=%s %s",
+                    total,
+                    ln,
+                    max_context,
+                    _doc_summary_for_log(d),
+                )
+            except Exception:
+                pass
             continue
         out.append(d)
         total += ln
+        try:
+            logger.debug(
+                "[RAG][compress][budget-keep] total=%s/%s %s",
+                total,
+                max_context,
+                _doc_summary_for_log(d),
+            )
+        except Exception:
+            pass
+
+    _log_docs("[RAG][compress][out-after-budget]", out)
 
     # Guarantee at least a small set
     if not out:
         out = kept[: min(len(kept), 8)]  # 6 -> 8
+
+    _log_docs("[RAG][compress][final-out]", out)
 
     try:
         logger.debug(

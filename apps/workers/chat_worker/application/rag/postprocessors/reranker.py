@@ -1,5 +1,3 @@
-
-
 """LLM-based reranker postprocessor.
 
 This module is intentionally *lightweight* (single file, minimal abstraction).
@@ -91,8 +89,16 @@ class LLMReranker:
                 items = self._prepare_items(batch, cfg)
                 prompt = _build_prompt(query=query, items=items)
                 raw = self._call_llm(prompt, cfg)
+                logger.debug("[RERANK] sync llm raw: %s", _summarize_raw(raw))
                 results = _parse_llm_json(raw)
-                logger.debug("[RERANK] sync batch: items=%s results=%s", len(items), len(results))
+                logger.debug(
+                    "[RERANK] sync batch: items=%s results=%s missing=%s",
+                    len(items),
+                    len(results),
+                    max(0, len(items) - len(results)),
+                )
+                if len(results) == 0:
+                    logger.warning("[RERANK] sync parsed 0 results; rerank will be ineffective")
 
                 # Map results to docs by id.
                 id_to_doc = {it[0]: it[1] for it in items}  # id -> doc
@@ -108,6 +114,8 @@ class LLMReranker:
 
                 # Any missing docs in this batch get a very low score but stay.
                 missing = set(id_to_doc.keys()) - {rid for rid, _, _ in results}
+                if missing:
+                    logger.debug("[RERANK] sync missing ids=%s", sorted(missing)[:10])
                 for rid in missing:
                     doc = id_to_doc[rid]
                     md = _ensure_metadata(doc)
@@ -139,6 +147,8 @@ class LLMReranker:
             uniq = uniq[: cfg.top_n]
 
         logger.debug("[RERANK] sync done: out=%s", len(uniq))
+        if uniq and all((_ensure_metadata(d).get("rerank_score") in (None, float("-inf"))) for d in uniq):
+            logger.warning("[RERANK] sync all rerank_score are -inf/None; output order likely unchanged")
         for i, d in enumerate(uniq, start=1):
             md = _ensure_metadata(d)
             logger.debug(
@@ -174,8 +184,16 @@ class LLMReranker:
                 items = self._prepare_items(batch, cfg)
                 prompt = _build_prompt(query=query, items=items)
                 raw = await self._call_llm_async(prompt, cfg)
+                logger.debug("[RERANK] async llm raw: %s", _summarize_raw(raw))
                 results = _parse_llm_json(raw)
-                logger.debug("[RERANK] async batch: items=%s results=%s", len(items), len(results))
+                logger.debug(
+                    "[RERANK] async batch: items=%s results=%s missing=%s",
+                    len(items),
+                    len(results),
+                    max(0, len(items) - len(results)),
+                )
+                if len(results) == 0:
+                    logger.warning("[RERANK] async parsed 0 results; rerank will be ineffective")
 
                 # Map results to docs by id.
                 id_to_doc = {it[0]: it[1] for it in items}  # id -> doc
@@ -191,6 +209,8 @@ class LLMReranker:
 
                 # Any missing docs in this batch get a very low score but stay.
                 missing = set(id_to_doc.keys()) - {rid for rid, _, _ in results}
+                if missing:
+                    logger.debug("[RERANK] async missing ids=%s", sorted(missing)[:10])
                 for rid in missing:
                     doc = id_to_doc[rid]
                     md = _ensure_metadata(doc)
@@ -222,6 +242,8 @@ class LLMReranker:
             uniq = uniq[: cfg.top_n]
 
         logger.debug("[RERANK] async done: out=%s", len(uniq))
+        if uniq and all((_ensure_metadata(d).get("rerank_score") in (None, float("-inf"))) for d in uniq):
+            logger.warning("[RERANK] async all rerank_score are -inf/None; output order likely unchanged")
         for i, d in enumerate(uniq, start=1):
             md = _ensure_metadata(d)
             logger.debug(
@@ -311,6 +333,16 @@ def _doc_id(doc: _DocLike, *, fallback: str) -> str:
 def _trim_text(text: str, max_chars: int) -> str:
     if max_chars <= 0:
         return text
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1] + "…"
+
+
+def _summarize_raw(raw: str, max_chars: int = 400) -> str:
+    if raw is None:
+        return "<None>"
+    text = str(raw)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) <= max_chars:
         return text
