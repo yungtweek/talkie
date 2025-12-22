@@ -128,6 +128,22 @@ def doc_rank(d: Document) -> int:
         return 10**9
 
 
+def doc_mmr_rank(d: Document) -> int:
+    """
+    Return MMR rank if available; lower value means better rank.
+
+    Falls back to a large number if rank is unavailable.
+    """
+    meta = d.metadata if isinstance(d.metadata, dict) else {}
+    raw_rank = meta.get("mmr_rank")
+    try:
+        if isinstance(raw_rank, (int, float, str)):
+            return int(raw_rank)
+        return 10**9
+    except Exception:
+        return 10**9
+
+
 @dataclass(frozen=True)
 class HeuristicCompressorConfig:
     max_context: int | None
@@ -175,6 +191,7 @@ class HeuristicCompressor:
 
         # --- detect rerank results and preserve rerank order for tie-breaking ---
         has_rerank = False
+        has_mmr = False
         rerank_pos: dict[Any, int] = {}
         for i, d in enumerate(docs):
             k = doc_stable_key(d)
@@ -183,7 +200,9 @@ class HeuristicCompressor:
             md = d.metadata if isinstance(d.metadata, dict) else {}
             if md.get("rerank_score") is not None:
                 has_rerank = True
-        logger.debug("[RAG][compress] start in=%s has_rerank=%s", len(docs), has_rerank)
+            if md.get("mmr_rank") is not None:
+                has_mmr = True
+        logger.debug("[RAG][compress] start in=%s has_rerank=%s has_mmr=%s", len(docs), has_rerank, has_mmr)
 
         DC, EF = DocumentCompressorPipeline, EmbeddingsFilter
         filtered = None
@@ -264,8 +283,16 @@ class HeuristicCompressor:
         # Maximizes recall at the cost of longer context.
         kept = list(kept)
 
-        # Restore stable order, preferring rerank scores when available.
-        if has_rerank:
+        # Restore stable order, preferring MMR order when available.
+        if has_mmr:
+            kept = sorted(
+                kept,
+                key=lambda d: (
+                    doc_mmr_rank(d),
+                    rerank_pos.get(doc_stable_key(d), 10**9),
+                ),
+            )
+        elif has_rerank:
             kept = sorted(
                 kept,
                 key=lambda d: (
