@@ -3,6 +3,8 @@ import json
 import logging
 import sys
 
+import click
+
 from uvicorn.logging import DefaultFormatter
 
 NOISY_LOGGERS = (
@@ -56,9 +58,24 @@ class ExtraFormatter(DefaultFormatter):
         extras = {k: v for k, v in record.__dict__.items() if k not in _STANDARD_KEYS}
         if extras:
             try:
-                record.extra = " " + json.dumps(extras, ensure_ascii=False, default=str)
+                extra_json = json.dumps(extras, ensure_ascii=False, default=str)
+                record.extra = " " + click.style(extra_json, fg="bright_black")
             except Exception:
-                record.extra = f" {extras}"
+                record.extra = " " + click.style(str(extras), fg="bright_black")
+
+        # Colorize level prefix manually (uvicorn colors disabled by default)
+        level = record.levelname
+        if level == "DEBUG":
+            record.levelprefix = click.style("DEBUG", fg="cyan")
+        elif level == "INFO":
+            record.levelprefix = click.style("INFO", fg="green")
+        elif level == "WARNING":
+            record.levelprefix = click.style("WARNING", fg="yellow")
+        elif level == "ERROR":
+            record.levelprefix = click.style("ERROR", fg="red")
+        elif level == "CRITICAL":
+            record.levelprefix = click.style("CRITICAL", fg="bright_red", bold=True)
+
         return super().format(record)
 
 
@@ -72,7 +89,7 @@ def configure_logging(log_level: str, noisy_level: str) -> logging.Logger:
         return logging.getLogger("ChatWorker")
 
     fmt = "%(levelprefix)s %(asctime)s %(name)s: %(message)s%(extra)s"
-    formatter_kwargs = {"use_colors": False, "datefmt": "%H:%M:%S"}
+    formatter_kwargs = {"use_colors": True, "datefmt": "%H:%M:%S"}
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(ExtraFormatter(fmt, **formatter_kwargs))
