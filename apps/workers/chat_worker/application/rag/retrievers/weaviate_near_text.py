@@ -42,6 +42,7 @@ class WeaviateNearTextRetriever(BaseRetriever):
             res = coll.query.near_text(
                 query=query,
                 distance=0.7,
+                include_vector=True,
                 limit=k,
                 filters=nf,
                 return_metadata=wvc.query.MetadataQuery(score=True, distance=True),
@@ -55,4 +56,7 @@ class WeaviateNearTextRetriever(BaseRetriever):
         logger.debug(f"[items] {items}")
 
         docs = items_to_docs(items, text_key)
+        if docs:
+            with_vec = sum(1 for d in docs if isinstance(getattr(d, "metadata", None), dict) and d.metadata.get("vector") is not None)
+            logger.debug(f"[RAG][near_text] vectors={with_vec}/{len(docs)}")
         return RetrieveResult(docs=docs, query=query, top_k=k, filters=dict(filters) if filters else None)

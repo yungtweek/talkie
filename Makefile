@@ -1,4 +1,8 @@
-.PHONY: dev web gateway static api up down worker-chat all-node workers start-all dev-all
+.PHONY: dev web gateway static api up down worker-chat all-node workers start-all dev-all verify-weaviate-vectors
+
+LOG_LEVEL ?= INFO
+VERIFY_TOP_K ?= 2
+VERIFY_GRPC_PORT ?= 50051
 
  # Run web, gateway, and chat worker together (dev)
 dev-all:
@@ -60,3 +64,13 @@ worker-index:
 	@. .venv/bin/activate && \
 	export PYTHONPATH=$$(pwd)/apps/workers && \
 	python -m index_worker.main 2>&1
+
+verify-weaviate-vectors:
+	@echo "🔎 Verifying Weaviate vectors (chat_worker)..."
+	@. .venv/bin/activate && \
+	export PYTHONPATH=$$(pwd)/apps/workers && \
+	set -a && source apps/workers/chat_worker/.env.local && set +a && \
+	python apps/workers/chat_worker/scripts/verify_weaviate_vectors.py \
+		--log-level $(LOG_LEVEL) \
+		--top-k $(VERIFY_TOP_K) \
+		--grpc-port $(VERIFY_GRPC_PORT)

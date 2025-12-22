@@ -14,6 +14,11 @@ from langchain_openai import OpenAIEmbeddings
 
 from chat_worker.application.dto.requests import ChatRequest, TitleRequest
 from chat_worker.application.rag_chain import RagPipeline
+from chat_worker.application.rag.compressors.llm import (
+    LLMCompressorConfig,
+    LangchainAsyncCompressor,
+    LangchainCompressor,
+)
 from chat_worker.application.rag.postprocessors.reranker import (
     LangchainAsyncReranker,
     LangchainReranker,
@@ -103,6 +108,8 @@ async def main():
     response_provider, response_model = settings.resolve_response_provider_model()
     title_provider, title_model = settings.resolve_title_provider_model()
     rerank_provider, rerank_model = settings.resolve_rerank_provider_model()
+    compress_provider = settings.LLM_COMPRESS_PROVIDER
+    compress_model = settings.LLM_COMPRESS_MODEL
 
     log.info(
         "LLM config resolved",
@@ -113,6 +120,8 @@ async def main():
             "title_model": title_model,
             "rerank_provider": rerank_provider,
             "rerank_model": rerank_model,
+            "compress_provider": compress_provider,
+            "compress_model": compress_model,
         },
     )
 
@@ -144,6 +153,29 @@ async def main():
             extra={"rerank_provider": rerank_provider, "rerank_model": rerank_model},
         )
 
+    llm_compressor = None
+    if compress_provider or compress_model:
+        resolved_provider, resolved_model = settings.resolve_compress_provider_model()
+        if resolved_provider == response_provider and resolved_model == response_model:
+            compress_llm_client = llm_client
+        elif resolved_provider == title_provider and resolved_model == title_model:
+            compress_llm_client = title_llm_client
+        elif resolved_provider == rerank_provider and resolved_model == rerank_model:
+            compress_llm_client = rerank_llm_client
+        else:
+            compress_llm_client = await _build_llm_client(resolved_provider, resolved_model)
+
+        cfg = LLMCompressorConfig(model=resolved_model)
+        if hasattr(compress_llm_client, "ainvoke"):
+            llm_compressor = LangchainAsyncCompressor(compress_llm_client, cfg=cfg)
+        elif hasattr(compress_llm_client, "invoke"):
+            llm_compressor = LangchainCompressor(compress_llm_client, cfg=cfg)
+        else:
+            log.warning(
+                "Compress LLM does not support invoke/ainvoke; compression disabled",
+                extra={"compress_provider": resolved_provider, "compress_model": resolved_model},
+            )
+
     # Warm-up/health probe (optional)
     r = await redis.info()
     # Stream publisher used to emit SSE-friendly events
@@ -165,6 +197,7 @@ async def main():
         embeddings=embeddings,  # (optional) embeddings
         text_key="text",
         reranker=reranker,
+        llm_compressor=llm_compressor,
     )
     rag_chain = pipeline.build()  # 🔁 build once; reuse per request
 
