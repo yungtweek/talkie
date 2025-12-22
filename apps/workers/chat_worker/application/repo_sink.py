@@ -1,7 +1,11 @@
 # chat_worker/application/repo_sink.py
 import asyncio
-from typing import Mapping, Any, Optional
+from logging import getLogger
+from typing import Any, Mapping, Optional, Sequence
 from chat_worker.domain.ports.chat_repo import ChatRepositoryPort
+
+
+logger = getLogger("RepoSink")
 
 
 class RepoSink:
@@ -31,6 +35,16 @@ class RepoSink:
             usage_prompt=usage_prompt,
             usage_completion=usage_completion,
         )
+        citations = _extract_citations(sources)
+        if citations:
+            try:
+                await self.chat_repo.save_message_citations(
+                    message_id=msg_id,
+                    session_id=self.session_id,
+                    citations=citations,
+                )
+            except Exception as exc:
+                logger.warning("Failed to save message citations: %s", exc)
         await self.chat_repo.update_job_status(job_id=self.job_id, status="done")
         return msg_id, idx, turn
 
@@ -44,3 +58,15 @@ class RepoSink:
             payload={"message": message},
         )
         await self.chat_repo.update_job_status(job_id=self.job_id, status="error", error=message)
+
+
+def _extract_citations(sources: Optional[Mapping[str, Any]]) -> Sequence[Mapping[str, Any]]:
+    if not sources:
+        return []
+    if isinstance(sources, list):
+        return [s for s in sources if isinstance(s, Mapping)]
+    for key in ("citations", "sources", "items", "docs"):
+        value = sources.get(key)
+        if isinstance(value, list):
+            return [s for s in value if isinstance(s, Mapping)]
+    return []

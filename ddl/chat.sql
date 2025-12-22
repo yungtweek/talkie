@@ -111,6 +111,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_messages_session_idx
 CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_messages_job
     ON chat_messages (job_id);
 
+-- composite FK target for message_citations (message_id, session_id)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_messages_id_session
+    ON chat_messages (id, session_id);
+
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_order
     ON chat_messages (session_id, message_index);
 
@@ -127,6 +131,122 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_session_role
 -- Filter by status (e.g., hide errored when needed)
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_status
     ON chat_messages (session_id, status, message_index);
+
+-- --------------------------------------------
+-- 메시지 인용(출처) — assistant final message 기준
+-- --------------------------------------------
+DROP TABLE IF EXISTS message_citations CASCADE;
+CREATE TABLE IF NOT EXISTS message_citations
+(
+    id            uuid PRIMARY KEY     DEFAULT gen_random_uuid(),
+
+    -- FK
+    message_id    uuid        NOT NULL,
+    session_id    uuid        NOT NULL,
+
+    -- citation identity
+    source_id     text        NOT NULL, -- S1, S2 같은 로컬 식별자 (required)
+    file_name     text        NOT NULL, -- 표시용 (예: xxx.md)
+    file_uri      text,                 -- 문서 뷰어/외부 링크 (optional)
+
+    -- chunk identity
+    chunk_id      text        NOT NULL,
+    page          int,                  -- 문서 페이지 (있으면)
+    snippet       text,                 -- hover / preview 용 (optional)
+
+    -- ranking / relevance
+    rerank_score  float,                -- reranker 점수 (optional)
+
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- Documentation: message_citations
+COMMENT ON TABLE message_citations IS 'Normalized RAG citations per assistant final message.';
+COMMENT ON COLUMN message_citations.message_id IS 'FK to chat_messages.id (assistant final message).';
+COMMENT ON COLUMN message_citations.session_id IS 'FK to chat_sessions.id (redundant for query speed / filtering).';
+COMMENT ON COLUMN message_citations.source_id IS 'Local citation id (e.g., S1, S2) used in the answer text.';
+COMMENT ON COLUMN message_citations.chunk_id IS 'Stable chunk identifier from retrieval index.';
+COMMENT ON COLUMN message_citations.rerank_score IS 'LLM reranker score if available.';
+
+-- Enforce (message_id, session_id) consistency with chat_messages
+ALTER TABLE message_citations
+    ADD CONSTRAINT fk_message_citations_message_session
+        FOREIGN KEY (message_id, session_id)
+            REFERENCES chat_messages (id, session_id)
+            ON DELETE CASCADE;
+
+-- Ensure session exists (redundant but fast filter anchor)
+ALTER TABLE message_citations
+    ADD CONSTRAINT fk_message_citations_session
+        FOREIGN KEY (session_id)
+            REFERENCES chat_sessions (id)
+            ON DELETE CASCADE;
+
+-- 메시지 → citations 조회 (UI 렌더용)
+CREATE INDEX IF NOT EXISTS idx_message_citations_message
+    ON message_citations (message_id);
+
+-- 세션 단위 조회 (감사/디버깅)
+CREATE INDEX IF NOT EXISTS idx_message_citations_session
+    ON message_citations (session_id, created_at);
+
+-- 문서/청크 기준 분석용 (나중에 유용)
+CREATE INDEX IF NOT EXISTS idx_message_citations_chunk
+    ON message_citations (chunk_id);
+
+-- 파일 기준 인용 빈도
+CREATE INDEX IF NOT EXISTS idx_message_citations_file
+    ON message_citations (file_name);
+
+-- 동일 메시지 내 중복 방지 (chunk/page 기준)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_message_citations_dedup
+    ON message_citations (message_id, chunk_id, COALESCE(page, -1));
+
+-- 동일 메시지 내 출처 라벨 중복 방지
+CREATE UNIQUE INDEX IF NOT EXISTS ux_message_citations_source_id
+    ON message_citations (message_id, source_id);
+
+-- --------------------------------------------
+-- Migration helpers (run once before adding constraints in existing DB)
+-- --------------------------------------------
+-- 1) Fix session_id mismatches using chat_messages as source of truth.
+-- UPDATE message_citations mc
+-- SET session_id = cm.session_id
+-- FROM chat_messages cm
+-- WHERE mc.message_id = cm.id
+--   AND mc.session_id <> cm.session_id;
+--
+-- 2) Remove orphan citations (no matching message_id).
+-- DELETE FROM message_citations mc
+-- WHERE NOT EXISTS (
+--     SELECT 1 FROM chat_messages cm WHERE cm.id = mc.message_id
+-- );
+--
+-- 3) Deduplicate by (message_id, chunk_id, page) treating NULL page as -1.
+-- WITH ranked AS (
+--     SELECT ctid,
+--            ROW_NUMBER() OVER (
+--                PARTITION BY message_id, chunk_id, COALESCE(page, -1)
+--                ORDER BY created_at DESC
+--            ) AS rn
+--     FROM message_citations
+-- )
+-- DELETE FROM message_citations mc
+-- USING ranked r
+-- WHERE mc.ctid = r.ctid AND r.rn > 1;
+--
+-- 4) Deduplicate by (message_id, source_id).
+-- WITH ranked AS (
+--     SELECT ctid,
+--            ROW_NUMBER() OVER (
+--                PARTITION BY message_id, source_id
+--                ORDER BY created_at DESC
+--            ) AS rn
+--     FROM message_citations
+-- )
+-- DELETE FROM message_citations mc
+-- USING ranked r
+-- WHERE mc.ctid = r.ctid AND r.rn > 1;
 
 -- --------------------------------------------
 -- 스트리밍 이벤트 (append-only)

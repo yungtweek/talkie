@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ChatEdge } from '@/features/chat/chat.types';
+import { ChatEdge, ChatNode } from '@/features/chat/chat.types';
 import { useShallow } from 'zustand/react/shallow';
 import { apolloClient } from '@/lib/apollo/apollo.client';
 import { ChatSessionDocument } from '@/gql/graphql';
@@ -16,6 +16,7 @@ interface ChatState {
   setBusy: (value: boolean) => void;
   add: (m: ChatEdge) => void;
   appendLive: (token: string, jobId: string) => void;
+  updateSources: (sources: unknown, jobId: string) => void;
   reset: () => void;
 
   ragBySession: Record<string, boolean>;
@@ -25,6 +26,30 @@ interface ChatState {
   toggleRag: (sessionId: string | null) => void;
   adoptPendingRag: (sessionId: string) => void; // ✅ Assign temporary value to new session
 }
+
+const updateEdgeByJobId = (
+  edges: ChatEdge[],
+  jobId: string,
+  updateNode: (node: ChatNode) => ChatNode,
+): ChatEdge[] => {
+  if (!jobId) return edges;
+  const idx = edges.findIndex(m => m?.node.jobId === jobId);
+  if (idx < 0) return edges;
+
+  const target = edges[idx];
+  if (!target || target.node?.role !== 'assistant') {
+    return edges;
+  }
+
+  const updated: ChatEdge = {
+    ...target,
+    node: updateNode(target.node),
+  };
+
+  const next = edges.slice();
+  next[idx] = updated;
+  return next;
+};
 
 export const chatStore = create<ChatState>((set, get) => ({
   edges: [],
@@ -114,27 +139,21 @@ export const chatStore = create<ChatState>((set, get) => ({
     set(st => {
       // Input validation: ignore empty chunks
       if (!token || token.length === 0) return { edges: st.edges };
-      // Find target message: identify only by jobId
-      const idx = st.edges.findIndex(m => m?.node.jobId === jobId);
-      if (idx < 0) return { edges: st.edges };
+      const next = updateEdgeByJobId(st.edges, jobId, node => ({
+        ...node,
+        content: (node.content ?? '') + String(token),
+      }));
+      return { edges: next };
+    }),
 
-      const target = st.edges[idx];
-      // Reflect stream only for assistant messages
-      if (!target || target.node?.role !== 'assistant') {
-        return { edges: st.edges };
-      }
-
-      // Nested immutable update
-      const updated: ChatEdge = {
-        ...target,
-        node: {
-          ...target.node,
-          content: (target.node.content ?? '') + String(token),
-        },
-      };
-
-      const next = st.edges.slice();
-      next[idx] = updated;
+  updateSources: (sources, jobId) =>
+    set(st => {
+      if (sources == null) return { edges: st.edges };
+      const payload = typeof sources === 'string' ? sources : JSON.stringify(sources);
+      const next = updateEdgeByJobId(st.edges, jobId, node => ({
+        ...node,
+        sourcesJson: payload,
+      }));
       return { edges: next };
     }),
 
@@ -166,7 +185,7 @@ export function useChatActions() {
       adoptPendingRag: s.adoptPendingRag,
       add: s.add,
       updateStream: s.appendLive,
-      // updateCitations: s.updateCitations,
+      updateSources: s.updateSources,
       reset: s.reset,
     })),
   );

@@ -96,6 +96,7 @@ enum FileVisibility {
 }
 
 type Message {
+  citationsJson: String
   content: String!
   id: ID!
   messageIndex: Int!

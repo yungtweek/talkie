@@ -152,7 +152,23 @@ export class ChatRepository {
              cm.content,
              cm.turn,
              cm.message_index as "messageIndex",
-             cm.sources_json as "sourcesJson"
+             cm.sources_json as "sourcesJson",
+             (
+               SELECT jsonb_agg(
+                 jsonb_build_object(
+                   'sourceId', mc.source_id,
+                   'fileName', mc.file_name,
+                   'fileUri', mc.file_uri,
+                   'chunkId', mc.chunk_id,
+                   'page', mc.page,
+                   'snippet', mc.snippet,
+                   'rerankScore', mc.rerank_score
+                 )
+                 ORDER BY mc.source_id
+               )
+               FROM message_citations mc
+               WHERE mc.message_id = cm.id
+             ) as "citationsJson"
       FROM chat_messages cm
       JOIN chat_sessions cs ON cs.id = cm.session_id
       WHERE cm.session_id = $1

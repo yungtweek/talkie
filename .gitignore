@@ -56,3 +56,5 @@ Features_20251020.md
 /tools/streamlit/.streamlit/
 /.fleet/settings.json
 /.fleet/
+/.codex/
+/.jbeval/

@@ -121,6 +121,7 @@ export type FileVisibility =
 
 export type Message = {
   __typename?: 'Message';
+  citationsJson?: Maybe<Scalars['String']['output']>;
   content: Scalars['String']['output'];
   id: Scalars['ID']['output'];
   messageIndex: Scalars['Int']['output'];
