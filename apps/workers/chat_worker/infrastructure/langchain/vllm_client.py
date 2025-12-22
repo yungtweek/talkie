@@ -196,6 +196,7 @@ class VllmGrpcClient:
                 # Stream-level failure from gateway/mock.
                 # Treat as a terminal error and trigger LangChain error callbacks.
                 error_reason = chunk.finish_reason or "LLM stream failed"
+                exc = RuntimeError(error_reason)
 
                 logger.error(
                     "LLM stream failed",
@@ -211,13 +212,12 @@ class VllmGrpcClient:
                     if on_error is None:
                         continue
 
-                    exc = RuntimeError(error_reason)
                     result = on_error(exc, run_id=run_id, tags=tags)
                     if asyncio.iscoroutine(result):
                         await result
 
                 end_called = True
-                break
+                raise exc
 
 
 
