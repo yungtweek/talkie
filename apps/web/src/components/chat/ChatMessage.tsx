@@ -1,6 +1,5 @@
-
 import { clsx } from 'clsx';
-import React from 'react';
+import React, { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import rehypeSanitize from 'rehype-sanitize';
@@ -8,6 +7,8 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ChatEdge } from '@/features/chat/chat.types';
 import { safeJsonParse } from '@/lib/utils';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
 
 export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDots?: boolean }) {
   const CodeBlock = ({ className, children, node, ...props }: any) => {
@@ -66,6 +67,30 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
     }>;
   }>(chat.node.sourcesJson, { citations: [] }).citations ?? [];
 
+  const groupedCitations = useMemo(() => {
+    const groups = new Map<string, typeof citations>();
+    for (const c of citations) {
+      const key = c.file_name || c.title || 'Untitled source';
+      const arr = groups.get(key) ?? [];
+      arr.push(c);
+      groups.set(key, arr);
+    }
+
+    // sort by rerank_score desc within each file (if present)
+    for (const [k, arr] of groups.entries()) {
+      arr.sort((a, b) => (b.rerank_score ?? -Infinity) - (a.rerank_score ?? -Infinity));
+      groups.set(k, arr);
+    }
+
+    // stable ordering: files by top rerank_score desc
+    const entries = Array.from(groups.entries()).map(([file, items]) => {
+      const top = items.length ? (items[0].rerank_score ?? -Infinity) : -Infinity;
+      return { file, items, top };
+    });
+    entries.sort((a, b) => b.top - a.top);
+    return entries;
+  }, [citations]);
+
   return (
     <div className={clsx(roleClass, 'prose')} role={chat.node.role}>
       {showDots && (
@@ -97,22 +122,73 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
         {chat.node.content}
       </ReactMarkdown>
       {citations.length > 0 && (
-        <div className="mt-4 rounded-xl border border-border bg-muted/40 p-4">
-          <div className="mb-2 text-sm font-semibold text-muted-foreground">Sources</div>
-          <ul className="space-y-3">
-            {citations.map((c, i) => (
-              <li key={c.source_id ?? i} className="text-sm">
-                <div className="font-medium">
-                  {c.title || c.file_name || 'Untitled source'}
+        <div className="mt-4">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="text-xs"
+              >
+                <span>Sources</span>
+                <span>
+                  {groupedCitations.length} file{groupedCitations.length === 1 ? '' : 's'} ·{' '}
+                  {citations.length} passage{citations.length === 1 ? '' : 's'}
+                </span>
+              </Button>
+            </PopoverTrigger>
+
+            <PopoverContent align="start" className="w-xl max-w-[90vw] p-0">
+              <div className="border-b border-border px-4 py-3">
+                <div className="text-sm font-semibold">Sources</div>
+                <div className="text-xs text-muted-foreground">
+                  {groupedCitations.length} file{groupedCitations.length === 1 ? '' : 's'} ·{' '}
+                  {citations.length} passage{citations.length === 1 ? '' : 's'}
                 </div>
-                {c.snippet && (
-                  <div className="mt-1 line-clamp-3 text-muted-foreground">
-                    {c.snippet}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+              </div>
+
+              <div className="max-h-96 overflow-auto px-4 py-3">
+                <div className="space-y-3">
+                  {groupedCitations.map(({ file, items }) => (
+                    <div key={file}>
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <div className="min-w-0 truncate text-sm font-semibold">{file}</div>
+                        <div className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                          {items.length} passage{items.length === 1 ? '' : 's'}
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {items.map((c, i) => (
+                          <div key={c.source_id ?? `${file}-${i}`} className="text-sm">
+                            <div className="mb-1 flex items-center justify-between gap-3">
+                              <div className="min-w-0 truncate text-xs text-muted-foreground">
+                                {c.source_id ?? `#${i + 1}`}
+                              </div>
+                              {typeof c.rerank_score === 'number' && (
+                                <div className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                                  {c.rerank_score.toFixed(2)}
+                                </div>
+                              )}
+                            </div>
+
+                            {c.snippet ? (
+                              <div className="rounded-md bg-muted/40 p-2 text-sm text-muted-foreground">
+                                <div className="whitespace-pre-wrap line-clamp-6">{c.snippet}</div>
+                              </div>
+                            ) : (
+                              <div className="text-xs text-muted-foreground">(no snippet)</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       )}
     </div>
