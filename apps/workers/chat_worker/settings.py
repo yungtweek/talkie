@@ -168,6 +168,14 @@ class Settings(BaseSettings):
     def LLM_RERANK_MODEL(self) -> str | None: # noqa: N802
         return self.llm.rerank_model
 
+    @property
+    def LLM_COMPRESS_PROVIDER(self) -> str | None: # noqa: N802
+        return self.llm.compress_provider
+
+    @property
+    def LLM_COMPRESS_MODEL(self) -> str | None: # noqa: N802
+        return self.llm.compress_model
+
     # Canonical resolvers (providers/models)
     def resolve_response_provider_model(self) -> tuple[str, str]:
         provider = (self.llm.response_provider or self.llm.default_provider).lower()
@@ -193,6 +201,15 @@ class Settings(BaseSettings):
             model = self.llm.rerank_model or (resp_model if provider == resp_provider else self.llm.model)
         else:
             model = self.llm.rerank_model or (resp_model if provider == resp_provider else self.llm.default_model)
+        return provider, model
+
+    def resolve_compress_provider_model(self) -> tuple[str, str]:
+        resp_provider, resp_model = self.resolve_response_provider_model()
+        provider = (self.llm.compress_provider or resp_provider).lower()
+        if provider == "openai":
+            model = self.llm.compress_model or (resp_model if provider == resp_provider else self.llm.model)
+        else:
+            model = self.llm.compress_model or (resp_model if provider == resp_provider else self.llm.default_model)
         return provider, model
 
     @property

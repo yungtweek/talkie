@@ -65,6 +65,7 @@ class RagPipeline:
             max_context: int | None = None,
             search_type: WeaviateSearchType = WeaviateSearchType.HYBRID,
             reranker: Any | None = None,
+            llm_compressor: Any | None = None,
     ):
         self.settings = settings or Settings().RAG
         # allow per-instance override via kwargs (take kwargs over settings)
@@ -86,6 +87,7 @@ class RagPipeline:
         self.client = client
         self.embeddings = embeddings
         self.reranker = reranker
+        self.llm_compressor = llm_compressor
 
         # Prompt
         self.prompt = ChatPromptTemplate.from_messages(
@@ -95,13 +97,15 @@ class RagPipeline:
             ]
         )
 
-    def compress_docs(self, docs: Sequence[Document], query: str):
+    async def compress_docs(self, docs: Sequence[Document], query: str):
         """Compress retrieved documents while preserving scores and ranks."""
-        return compress_docs_postprocessor(
+        return await compress_docs_postprocessor(
             docs,
             query,
             embeddings=self.embeddings,
             max_context=self.max_context,
+            llm_compressor=self.llm_compressor,
+            use_llm=self.llm_compressor is not None,
         )
 
     async def rerank_docs(self, docs: Sequence[Document], query: str) -> list[Document]:
@@ -316,7 +320,7 @@ class RagPipeline:
                 logger.warning("[RAG] mmr failed: %s", e)
                 mmr_docs = reranked_docs
             logger.debug("[RAG] mmr_docs: %s", len(mmr_docs))
-            compressed_docs = self.compress_docs(mmr_docs, q)
+            compressed_docs = await self.compress_docs(mmr_docs, q)
             logger.debug("[RAG] compressed_docs: %s", len(compressed_docs))
             if not compressed_docs:
                 logger.warning("[RAG] No relevant documents found for query.")

@@ -16,6 +16,8 @@ class LlmConfig(BaseModel):
     title_model: str | None = Field(default=None)
     rerank_provider: str | None = Field(default=None)
     rerank_model: str | None = Field(default=None)
+    compress_provider: str | None = Field(default=None)
+    compress_model: str | None = Field(default=None)
 
     timeout_ms: int = Field(default=10_000)
     gateway_addr: str = Field(default="localhost:50052")
