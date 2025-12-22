@@ -4,6 +4,7 @@ from typing import Any, List
 from langchain_core.messages import HumanMessage
 
 from chat_worker.application.llm_runner import llm_runner
+from chat_worker.application.repo_sink import RepoSink, _extract_citations
 from chat_worker.application.rag.document import Document
 from chat_worker.application.rag_chain import RagPipeline
 from chat_worker.config.rag import RagConfig
@@ -107,3 +108,112 @@ class LlmRunnerSourcesEventTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(any(evt.get("event") == "sources" for evt in published))
         self.assertIn("sources", mirrored)
+
+
+class DummyChatRepo:
+    def __init__(self) -> None:
+        self.finalize_calls: list[dict] = []
+        self.saved_citations: list[dict] = []
+        self.job_status_updates: list[dict] = []
+
+    async def append_event(
+        self,
+        *,
+        job_id: str,
+        session_id: str,
+        event_type: str,
+        seq: int,
+        payload: dict,
+    ) -> None:
+        return None
+
+    async def finalize_assistant_message(
+        self,
+        *,
+        session_id: str,
+        mode: str = "gen",
+        job_id: str,
+        content: str,
+        sources: dict | None = None,
+        usage_prompt: int | None = None,
+        usage_completion: int | None = None,
+        trace_id: str | None = None,
+    ) -> tuple[str, int, int]:
+        self.finalize_calls.append(
+            {
+                "session_id": session_id,
+                "mode": mode,
+                "job_id": job_id,
+                "content": content,
+                "sources": sources,
+                "usage_prompt": usage_prompt,
+                "usage_completion": usage_completion,
+                "trace_id": trace_id,
+            }
+        )
+        return "msg-1", 1, 1
+
+    async def save_message_citations(
+        self,
+        *,
+        message_id: str,
+        session_id: str,
+        citations: list[dict],
+    ) -> None:
+        self.saved_citations.append(
+            {
+                "message_id": message_id,
+                "session_id": session_id,
+                "citations": citations,
+            }
+        )
+
+    async def update_job_status(
+        self,
+        *,
+        job_id: str,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        self.job_status_updates.append(
+            {"job_id": job_id, "status": status, "error": error}
+        )
+
+
+class RepoSinkTests(unittest.IsolatedAsyncioTestCase):
+    async def test_on_done_persists_citations(self) -> None:
+        repo = DummyChatRepo()
+        sink = RepoSink(chat_repo=repo, job_id="job-1", session_id="sess-1", mode="rag")
+        citations = [{"source_id": "S1", "file_name": "Doc1", "chunk_id": "c1"}]
+
+        msg_id, idx, turn = await sink.on_done(
+            "final",
+            sources={"citations": citations},
+            usage_prompt=10,
+            usage_completion=20,
+        )
+
+        self.assertEqual((msg_id, idx, turn), ("msg-1", 1, 1))
+        self.assertEqual(len(repo.finalize_calls), 1)
+        self.assertEqual(repo.finalize_calls[0]["sources"], {"citations": citations})
+        self.assertEqual(len(repo.saved_citations), 1)
+        self.assertEqual(repo.saved_citations[0]["citations"], citations)
+        self.assertEqual(repo.job_status_updates[-1]["status"], "done")
+
+    async def test_on_done_skips_missing_citations(self) -> None:
+        repo = DummyChatRepo()
+        sink = RepoSink(chat_repo=repo, job_id="job-2", session_id="sess-2")
+
+        await sink.on_done("final", sources={"foo": "bar"})
+
+        self.assertEqual(len(repo.saved_citations), 0)
+        self.assertEqual(repo.job_status_updates[-1]["status"], "done")
+
+    def test_extract_citations_handles_collections(self) -> None:
+        citations = [{"source_id": "S1"}]
+        self.assertEqual(_extract_citations(citations), citations)
+        self.assertEqual(
+            _extract_citations({"citations": citations + ["bad"]}),
+            citations,
+        )
+        self.assertEqual(_extract_citations({"sources": citations}), citations)
