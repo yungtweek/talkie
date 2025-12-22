@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import re
 from dataclasses import dataclass
 from logging import getLogger
@@ -107,10 +108,17 @@ class LLMReranker:
                     if doc is None:
                         continue
                     md = _ensure_metadata(doc)
-                    md["rerank_score"] = float(score)
+                    try:
+                        fscore = float(score)
+                    except Exception:
+                        fscore = None
+                    if fscore is None or not math.isfinite(fscore):
+                        md["rerank_score"] = None
+                    else:
+                        md["rerank_score"] = fscore
                     if reason is not None:
                         md["rerank_reason"] = reason
-                    scored.append((doc, float(score)))
+                    scored.append((doc, md["rerank_score"] if md["rerank_score"] is not None else float("-inf")))
 
                 # Any missing docs in this batch get a very low score but stay.
                 missing = set(id_to_doc.keys()) - {rid for rid, _, _ in results}
@@ -119,8 +127,9 @@ class LLMReranker:
                 for rid in missing:
                     doc = id_to_doc[rid]
                     md = _ensure_metadata(doc)
-                    md.setdefault("rerank_score", float("-inf"))
-                    scored.append((doc, float(md["rerank_score"])))
+                    if md.get("rerank_score") is None:
+                        md["rerank_score"] = None
+                    scored.append((doc, float(md["rerank_score"]) if md["rerank_score"] is not None else float("-inf")))
 
         except Exception:
             if cfg.fail_open:
@@ -202,10 +211,17 @@ class LLMReranker:
                     if doc is None:
                         continue
                     md = _ensure_metadata(doc)
-                    md["rerank_score"] = float(score)
+                    try:
+                        fscore = float(score)
+                    except Exception:
+                        fscore = None
+                    if fscore is None or not math.isfinite(fscore):
+                        md["rerank_score"] = None
+                    else:
+                        md["rerank_score"] = fscore
                     if reason is not None:
                         md["rerank_reason"] = reason
-                    scored.append((doc, float(score)))
+                    scored.append((doc, md["rerank_score"] if md["rerank_score"] is not None else float("-inf")))
 
                 # Any missing docs in this batch get a very low score but stay.
                 missing = set(id_to_doc.keys()) - {rid for rid, _, _ in results}
@@ -214,8 +230,9 @@ class LLMReranker:
                 for rid in missing:
                     doc = id_to_doc[rid]
                     md = _ensure_metadata(doc)
-                    md.setdefault("rerank_score", float("-inf"))
-                    scored.append((doc, float(md["rerank_score"])))
+                    if md.get("rerank_score") is None:
+                        md["rerank_score"] = None
+                    scored.append((doc, float(md["rerank_score"]) if md["rerank_score"] is not None else float("-inf")))
 
         except Exception:
             if cfg.fail_open:

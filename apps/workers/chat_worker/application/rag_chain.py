@@ -1,4 +1,5 @@
 from logging import getLogger
+import math
 
 import weaviate
 from typing import Dict, Any, List, Optional, Sequence, cast
@@ -12,6 +13,7 @@ from chat_worker.application.rag.helpers import normalize_search_type
 from chat_worker.application.rag.postprocessors.compress_docs import (
     compress_docs as compress_docs_postprocessor,
 )
+from chat_worker.application.rag.postprocessors.mmr import MMRConfig, MMRPostprocessor
 from chat_worker.application.rag.retrievers.base import RagContext, RetrieveResult
 from chat_worker.application.rag.retrievers.weaviate_near_text import WeaviateNearTextRetriever
 from chat_worker.settings import Settings, RagConfig, WeaviateSearchType
@@ -139,9 +141,10 @@ class RagPipeline:
             if val is None:
                 return None
             try:
-                return float(val)
+                out = float(val)
             except Exception:
                 return None
+            return out if math.isfinite(out) else None
 
         for d in docs:
             txt = d.page_content or ""
@@ -304,7 +307,16 @@ class RagPipeline:
             docs = list(docs_seq)
             reranked_docs = await self.rerank_docs(docs, q)
             logger.debug("[RAG] reranked_docs: %s", len(reranked_docs))
-            compressed_docs = self.compress_docs(reranked_docs, q)
+            mmr_docs = reranked_docs
+            try:
+                if reranked_docs:
+                    mmr_cfg = MMRConfig(k=len(reranked_docs), fetch_k=len(reranked_docs))
+                    mmr_docs = MMRPostprocessor(mmr_cfg).apply(query=q, docs=reranked_docs)
+            except Exception as e:
+                logger.warning("[RAG] mmr failed: %s", e)
+                mmr_docs = reranked_docs
+            logger.debug("[RAG] mmr_docs: %s", len(mmr_docs))
+            compressed_docs = self.compress_docs(mmr_docs, q)
             logger.debug("[RAG] compressed_docs: %s", len(compressed_docs))
             if not compressed_docs:
                 logger.warning("[RAG] No relevant documents found for query.")

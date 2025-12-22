@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
 import asyncpg
 
 from chat_worker.domain.ports.chat_repo import ChatRepositoryPort
+
+
+def _sanitize_json(value: Any) -> Any:
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Mapping):
+        return {k: _sanitize_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_json(v) for v in value]
+    return value
 
 
 class PostgresChatRepo(ChatRepositoryPort):
@@ -33,7 +44,7 @@ class PostgresChatRepo(ChatRepositoryPort):
             seq: int,
             payload: Mapping[str, Any],
     ) -> None:
-        payload_json = json.dumps(payload or {}, ensure_ascii=False)
+        payload_json = json.dumps(_sanitize_json(payload or {}), ensure_ascii=False, allow_nan=False)
         sql = (
             """
             INSERT INTO chat_events (job_id, session_id, event_type, seq, payload_json)
@@ -84,7 +95,7 @@ class PostgresChatRepo(ChatRepositoryPort):
             """
         )
 
-        sources_json = json.dumps(sources or {}, ensure_ascii=False)
+        sources_json = json.dumps(_sanitize_json(sources or {}), ensure_ascii=False, allow_nan=False)
 
         async with self.pool.acquire() as conn:
             async with conn.transaction():

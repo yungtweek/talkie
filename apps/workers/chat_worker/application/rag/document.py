@@ -31,6 +31,34 @@ def _as_int(val, default=None):
     return default
 
 
+def _select_vector(vec):
+    if vec is None:
+        return None
+    if isinstance(vec, dict):
+        if "default" in vec:
+            vec = vec.get("default")
+        elif vec:
+            vec = next(iter(vec.values()))
+        else:
+            return None
+    if isinstance(vec, list) and vec and isinstance(vec[0], list):
+        vec = vec[0]
+    return vec
+
+
+def _extract_vector(obj):
+    vec = getattr(obj, "vector", None)
+    if vec is None:
+        vec = getattr(obj, "vectors", None)
+    if vec is None:
+        md = getattr(obj, "metadata", None)
+        if isinstance(md, dict):
+            vec = md.get("vector") or md.get("vectors")
+        else:
+            vec = getattr(md, "vector", None) or getattr(md, "vectors", None)
+    return vec
+
+
 class Document:
     """
     Canonical document model used across Talkie RAG.
@@ -323,6 +351,11 @@ def items_to_docs(items, text_key: str):
         if isinstance(it, Document) or isinstance(it, dict) or hasattr(it, "page_content") or hasattr(it, "properties"):
             try:
                 doc = Document.from_any(it, text_key=text_key)
+                vec = _select_vector(_extract_vector(it))
+                if vec is not None:
+                    md = doc.metadata if isinstance(doc.metadata, dict) else {}
+                    md["vector"] = vec
+                    doc.metadata = md
                 docs.append(doc)
                 continue
             except Exception:
@@ -356,5 +389,10 @@ def items_to_docs(items, text_key: str):
             page_content=None,
             weaviate_id=wid,
         )
+        vec = _select_vector(_extract_vector(it))
+        if vec is not None:
+            md_out = doc.metadata if isinstance(doc.metadata, dict) else {}
+            md_out["vector"] = vec
+            doc.metadata = md_out
         docs.append(doc)
     return docs
