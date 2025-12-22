@@ -79,15 +79,15 @@ In the broader system:
 
 ### Gateway Settings
 
-Configuration is loaded by `internal/config` and typically controlled via environment variables (see code for exact names):
+Configuration is loaded by `internal/config` and controlled via environment variables:
 
 - **Service**
-  - `PORT` – gRPC listen port (e.g., `50052`).
-  - `LOG_LEVEL` – log level for `zap` (e.g., `info`, `debug`).
+  - `LLM_GATEWAY_PORT` - gRPC listen port (e.g., `50052`).
+  - `LOG_LEVEL` - log level for `zap` (e.g., `info`, `debug`).
 - **vLLM**
-  - `VLLM_URL` – base URL for the vLLM HTTP server (e.g., `http://localhost:8000`).
-  - `TIMEOUT_MS` – request timeout to vLLM in milliseconds.
-  - `DEFAULT_MODEL` – default model name used when callers don’t specify one.
+  - `VLLM_URL` - base URL for the vLLM HTTP server (e.g., `http://localhost:8000`).
+  - `LLM_TIMEOUT_MS` - request timeout to vLLM in milliseconds.
+  - `LLM_DEFAULT_MODEL` - default model name used when callers do not specify one.
 
 ### Worker Settings
 
