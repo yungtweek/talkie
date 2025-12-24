@@ -36,7 +36,6 @@ flowchart LR
 - `apps/llm-gateway`: Go gRPC gateway for vLLM.
 - `apps/workers/chat_worker`: Chat/RAG worker with streaming and metrics.
 - `apps/workers/index_worker`: Ingest worker for extraction, chunking, and embeddings.
-- `apps/workers/title_worker`: Title generation worker (used by chat pipeline).
 - `packages/events-contracts`: Shared Kafka payload schemas.
 - `packages/types-zod`: Shared Zod schemas and types.
 - `infra/docker`: Dev infrastructure (Postgres, Kafka, Redis, Weaviate, MinIO).
