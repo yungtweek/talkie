@@ -9,6 +9,7 @@ from chat_worker.domain.ports.chat_repo import ChatRepositoryPort
 from chat_worker.domain.ports.llm import LlmPort
 from chat_worker.domain.ports.metrics_repo import MetricsRepositoryPort
 from chat_worker.infrastructure.langchain.llm_adapter import LangchainLlmAdapter
+from chat_worker.infrastructure.stream.stream_service import safe_publish
 from chat_worker.settings import Settings
 
 
@@ -84,6 +85,17 @@ class ChatLLMService:
             event_type="started",
             data={"mode": mode},
         )
+        await safe_publish(
+            publish,
+            {
+                "event": "created",
+                "jobId": job_id,
+                "userId": user_id,
+                "sessionId": session_id,
+                "mode": mode,
+            },
+        )
+        await sink.on_job_event("created", {"mode": mode})
 
         # Prepare unified inputs for llm_runner
         chain = None

@@ -53,6 +53,7 @@ def stream_key(job_id: str, user_id: str) -> str:
 
 # Event type alias shared by publishers and low-level helpers
 EventType = Literal[
+    "created",
     "meta",
     "token",
     "sources",
@@ -97,7 +98,7 @@ class StreamService:
         """
         Create a coroutine `publish(evt)` for a specific (job_id, user_id).
 
-        Accepted events: {"meta", "token", "sources", "done", "error", "ping", "final"}
+        Accepted events: {"created", "meta", "token", "sources", "done", "error", "ping", "final"}
 
         Example payloads (the key is `event`; other keys become `data`):
             {"event": "token", "index": 0, "text": "He"}
@@ -110,6 +111,7 @@ class StreamService:
         - Internally calls `_xadd(redis, job_id, user_id, event, data)` with JSON-serialized data.
         """
         allowed: set[EventType] = {
+            "created",
             "meta",
             "token",
             "sources",
