@@ -38,7 +38,17 @@ export function useChatSessionStream(sessionId: string | null) {
   const router = useRouter();
   const pathname = usePathname();
   const { messages, loading, error, setBusy } = useChatState();
-  const { add, reset, setRag, getRag, updateStream, updateSources } = useChatActions();
+  const {
+    add,
+    reset,
+    setRag,
+    getRag,
+    updateStream,
+    updateSources,
+    updateRagSearch,
+    markStreamDone,
+  } =
+    useChatActions();
   const hasMeta = useRef(false);
   const { adoptNewSession } = useChatUI();
   const client = useApolloClient();
@@ -74,7 +84,7 @@ export function useChatSessionStream(sessionId: string | null) {
 
       // Add empty assistant message to stream updates into
       const assistantMsg: ChatEdge = {
-        node: { role: 'assistant', content: '', jobId },
+        node: { role: 'assistant', content: '', jobId, streamDone: false },
       };
       add(assistantMsg);
 
@@ -139,8 +149,10 @@ export function useChatSessionStream(sessionId: string | null) {
         openChatStream(jobId, {
           onText: chunk => updateStream(chunk, jobId),
           onSources: sources => updateSources(sources, jobId),
+          onRagSearch: (status, payload) => updateRagSearch(jobId, status, payload),
           onDone: () => {
             hasMeta.current = false;
+            markStreamDone(jobId);
 
             // Redirect to new session if created
             if (thisSessionId === null && createdId !== null) {

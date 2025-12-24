@@ -93,7 +93,24 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
 
   return (
     <div className={clsx(roleClass, 'prose')} role={chat.node.role}>
-      {showDots && (
+      {chat.node.ragSearch?.status && (
+        <div className="mb-2 text-xs text-muted-foreground">
+          {chat.node.ragSearch.status === 'in_progress' ? (
+            <span>Searching sources...</span>
+          ) : (
+            <span>
+              Sources ready
+              {typeof chat.node.ragSearch.hits === 'number'
+                ? ` · ${chat.node.ragSearch.hits} hits`
+                : ''}
+              {typeof chat.node.ragSearch.tookMs === 'number'
+                ? ` · ${chat.node.ragSearch.tookMs}ms`
+                : ''}
+            </span>
+          )}
+        </div>
+      )}
+      {showDots && chat.node.ragSearch?.status !== 'in_progress' && (
         <div className="mt-0 inline-flex gap-1">
           <span className="inline-block animate-bounce" style={{ animationDelay: '0ms' }}>
             .
@@ -121,7 +138,7 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
       >
         {chat.node.content}
       </ReactMarkdown>
-      {citations.length > 0 && (
+      {citations.length > 0 && chat.node.streamDone !== false && (
         <div className="mt-4">
           <Popover>
             <PopoverTrigger asChild>

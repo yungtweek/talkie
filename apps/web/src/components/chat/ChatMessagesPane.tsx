@@ -4,7 +4,6 @@ import ChatMessage from '@/components/chat/ChatMessage';
 import { useSessionsState } from '@/features/chat/chat.sessions.store';
 import { useChatSessionStream } from '@/features/chat/useChatSessionStream';
 import { useChatUI } from '@/providers/ChatProvider';
-import { useChatState } from '@/features/chat/chat.store';
 import { ChatEdge } from '@/features/chat/chat.types';
 import { Greeting } from '@/components/chat/Greeting';
 
@@ -12,8 +11,7 @@ export default function MessagesPane() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { awaitingFirstToken, setAwaitingFirstToken } = useChatUI();
   const { selectedSessionId } = useSessionsState();
-  const { messages, loading } = useChatSessionStream(selectedSessionId);
-  const { busy } = useChatState();
+  const { messages, loading, isPending } = useChatSessionStream(selectedSessionId);
 
   useEffect(() => {
     console.log('messages changed', messages);
@@ -24,7 +22,7 @@ export default function MessagesPane() {
     }
   }, [messages, awaitingFirstToken]);
 
-  const isStreamingNow = busy || awaitingFirstToken || loading;
+  const isStreamingNow = isPending || awaitingFirstToken || loading;
 
   useEffect(() => {
     if (!containerRef.current) return;

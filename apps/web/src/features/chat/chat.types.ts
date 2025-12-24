@@ -13,4 +13,11 @@ export interface ChatNode {
   turn?: number | null;
   sourcesJson?: string | null;
   jobId?: string | null;
+  streamDone?: boolean;
+  ragSearch?: {
+    status: 'in_progress' | 'completed';
+    query?: string;
+    hits?: number;
+    tookMs?: number;
+  };
 }

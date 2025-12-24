@@ -17,6 +17,12 @@ interface ChatState {
   add: (m: ChatEdge) => void;
   appendLive: (token: string, jobId: string) => void;
   updateSources: (sources: unknown, jobId: string) => void;
+  updateRagSearch: (
+    jobId: string,
+    status: 'in_progress' | 'completed',
+    payload?: { hits?: number; tookMs?: number; query?: string },
+  ) => void;
+  markStreamDone: (jobId: string) => void;
   reset: () => void;
 
   ragBySession: Record<string, boolean>;
@@ -157,6 +163,24 @@ export const chatStore = create<ChatState>((set, get) => ({
       return { edges: next };
     }),
 
+  updateRagSearch: (jobId, status, payload) =>
+    set(st => {
+      const next = updateEdgeByJobId(st.edges, jobId, node => ({
+        ...node,
+        ragSearch: { status, ...(payload ?? {}) },
+      }));
+      return { edges: next };
+    }),
+
+  markStreamDone: jobId =>
+    set(st => {
+      const next = updateEdgeByJobId(st.edges, jobId, node => ({
+        ...node,
+        streamDone: true,
+      }));
+      return { edges: next };
+    }),
+
   reset: () => set({ edges: [], loading: false, error: null }),
 }));
 
@@ -186,6 +210,8 @@ export function useChatActions() {
       add: s.add,
       updateStream: s.appendLive,
       updateSources: s.updateSources,
+      updateRagSearch: s.updateRagSearch,
+      markStreamDone: s.markStreamDone,
       reset: s.reset,
     })),
   );
