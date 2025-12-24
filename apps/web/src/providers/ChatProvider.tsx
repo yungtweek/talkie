@@ -5,7 +5,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
   createContext,
   useContext,
   useCallback,
@@ -16,10 +15,6 @@ import { useParams } from 'next/navigation';
 import { useChatActions } from '@/features/chat/chat.store';
 
 type ChatUIValue = {
-  busy: boolean;
-  setBusy: (v: boolean) => void;
-  awaitingFirstToken: boolean;
-  setAwaitingFirstToken: (v: boolean) => void;
   adoptNewSession: (sid: string) => void;
   ensureLoaded: (
     sid: string,
@@ -44,9 +39,6 @@ export const useChatUI = (): ChatUIValue => {
  * - Immediate activation and cache marking upon new session creation
  */
 export default function ChatProvider({ children }: { children: ReactNode }) {
-  const [busy, setBusy] = useState(false);
-  const [awaitingFirstToken, setAwaitingFirstToken] = useState(false);
-
   // Subscribe only to required actions/state from the global store
   const { setActiveSessionId, setSelectedSessionId } = chatSessionsStore(
     useShallow(s => ({
@@ -178,10 +170,6 @@ export default function ChatProvider({ children }: { children: ReactNode }) {
   return (
     <ChatUIContext.Provider
       value={{
-        busy,
-        setBusy,
-        awaitingFirstToken,
-        setAwaitingFirstToken,
         adoptNewSession,
         ensureLoaded,
       }}

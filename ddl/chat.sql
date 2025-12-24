@@ -198,6 +198,52 @@ CREATE INDEX IF NOT EXISTS idx_message_citations_chunk
 CREATE INDEX IF NOT EXISTS idx_message_citations_file
     ON message_citations (file_name);
 
+-- --------------------------------------------
+-- Job Events (streamed event log)
+-- --------------------------------------------
+DROP TABLE IF EXISTS job_events CASCADE;
+CREATE TABLE IF NOT EXISTS job_events
+(
+    id         uuid PRIMARY KEY     DEFAULT gen_random_uuid(),
+    job_id     uuid        NOT NULL,
+    user_id    uuid        NOT NULL,
+    session_id uuid,
+    event      text        NOT NULL,
+    payload    jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE job_events IS 'Append-only job-scoped events (e.g., rag_search_call.*) for observability.';
+COMMENT ON COLUMN job_events.job_id IS 'Job UUID (correlates with chat jobs).';
+COMMENT ON COLUMN job_events.user_id IS 'Owner user UUID.';
+COMMENT ON COLUMN job_events.session_id IS 'Optional session UUID for chat jobs.';
+COMMENT ON COLUMN job_events.event IS 'Event name, e.g., rag_search_call.in_progress.';
+COMMENT ON COLUMN job_events.payload IS 'Event payload JSON (query, hits, tookMs, etc).';
+
+ALTER TABLE job_events
+    ADD CONSTRAINT fk_job_events_user
+        FOREIGN KEY (user_id)
+            REFERENCES users (id)
+            ON DELETE CASCADE;
+
+ALTER TABLE job_events
+    ADD CONSTRAINT fk_job_events_session
+        FOREIGN KEY (session_id)
+            REFERENCES chat_sessions (id)
+            ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS idx_job_events_job
+    ON job_events (job_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_job_events_user
+    ON job_events (user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_job_events_session
+    ON job_events (session_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_job_events_event
+    ON job_events (event, created_at DESC);
+
 -- 동일 메시지 내 중복 방지 (chunk/page 기준)
 CREATE UNIQUE INDEX IF NOT EXISTS ux_message_citations_dedup
     ON message_citations (message_id, chunk_id, COALESCE(page, -1));

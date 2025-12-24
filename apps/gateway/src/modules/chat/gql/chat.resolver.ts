@@ -85,6 +85,10 @@ export class ChatResolver {
         r.citationsJson !== null && r.citationsJson !== undefined
           ? JSON.stringify(r.citationsJson)
           : null;
+      const ragSearchJson =
+        r.ragSearchJson !== null && r.ragSearchJson !== undefined
+          ? JSON.stringify(r.ragSearchJson)
+          : null;
 
       return {
         node: {
@@ -95,6 +99,7 @@ export class ChatResolver {
           messageIndex: r.messageIndex,
           sourcesJson,
           citationsJson,
+          ragSearchJson,
         } as Message,
         cursor: toCursor(r.messageIndex),
       };

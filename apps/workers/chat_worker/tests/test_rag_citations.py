@@ -115,6 +115,7 @@ class DummyChatRepo:
         self.finalize_calls: list[dict] = []
         self.saved_citations: list[dict] = []
         self.job_status_updates: list[dict] = []
+        self.job_events: list[dict] = []
 
     async def append_event(
         self,
@@ -126,6 +127,25 @@ class DummyChatRepo:
         payload: dict,
     ) -> None:
         return None
+
+    async def append_job_event(
+        self,
+        *,
+        job_id: str,
+        user_id: str,
+        session_id: str | None,
+        event_type: str,
+        payload: dict,
+    ) -> None:
+        self.job_events.append(
+            {
+                "job_id": job_id,
+                "user_id": user_id,
+                "session_id": session_id,
+                "event_type": event_type,
+                "payload": payload,
+            }
+        )
 
     async def finalize_assistant_message(
         self,
@@ -183,7 +203,13 @@ class DummyChatRepo:
 class RepoSinkTests(unittest.IsolatedAsyncioTestCase):
     async def test_on_done_persists_citations(self) -> None:
         repo = DummyChatRepo()
-        sink = RepoSink(chat_repo=repo, job_id="job-1", session_id="sess-1", mode="rag")
+        sink = RepoSink(
+            chat_repo=repo,
+            job_id="job-1",
+            user_id="user-1",
+            session_id="sess-1",
+            mode="rag",
+        )
         citations = [{"source_id": "S1", "file_name": "Doc1", "chunk_id": "c1"}]
 
         msg_id, idx, turn = await sink.on_done(
@@ -202,12 +228,54 @@ class RepoSinkTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_on_done_skips_missing_citations(self) -> None:
         repo = DummyChatRepo()
-        sink = RepoSink(chat_repo=repo, job_id="job-2", session_id="sess-2")
+        sink = RepoSink(
+            chat_repo=repo,
+            job_id="job-2",
+            user_id="user-2",
+            session_id="sess-2",
+        )
 
         await sink.on_done("final", sources={"foo": "bar"})
 
         self.assertEqual(len(repo.saved_citations), 0)
         self.assertEqual(repo.job_status_updates[-1]["status"], "done")
+
+    async def test_on_job_event_persists(self) -> None:
+        repo = DummyChatRepo()
+        sink = RepoSink(
+            chat_repo=repo,
+            job_id="job-3",
+            user_id="user-3",
+            session_id="sess-3",
+        )
+
+        await sink.on_job_event(
+            "rag_search_call.completed",
+            {"query": "hi", "hits": 2, "tookMs": 10},
+        )
+
+        self.assertEqual(len(repo.job_events), 1)
+        self.assertEqual(repo.job_events[0]["job_id"], "job-3")
+        self.assertEqual(repo.job_events[0]["user_id"], "user-3")
+        self.assertEqual(repo.job_events[0]["session_id"], "sess-3")
+        self.assertEqual(repo.job_events[0]["event_type"], "rag_search_call.completed")
+        self.assertEqual(repo.job_events[0]["payload"]["hits"], 2)
+
+    async def test_on_event_persists_done_only(self) -> None:
+        repo = DummyChatRepo()
+        sink = RepoSink(
+            chat_repo=repo,
+            job_id="job-4",
+            user_id="user-4",
+            session_id="sess-4",
+        )
+
+        await sink.on_event("token", {"event": "token", "content": "hi"})
+        await sink.on_event("done", {"event": "done", "jobId": "job-4", "foo": "bar"})
+
+        self.assertEqual(len(repo.job_events), 1)
+        self.assertEqual(repo.job_events[0]["event_type"], "done")
+        self.assertEqual(repo.job_events[0]["payload"], {"foo": "bar"})
 
     def test_extract_citations_handles_collections(self) -> None:
         citations = [{"source_id": "S1"}]

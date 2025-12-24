@@ -169,6 +169,34 @@ export class ChatRepository {
                FROM message_citations mc
                WHERE mc.message_id = cm.id
              ) as "citationsJson"
+            ,
+            (
+              SELECT NULLIF(
+                jsonb_strip_nulls(
+                  jsonb_build_object(
+                    'inProgress',
+                    (
+                      SELECT je.payload
+                      FROM job_events je
+                      WHERE je.job_id = cm.job_id
+                        AND je.event = 'rag_search_call.in_progress'
+                      ORDER BY je.created_at DESC
+                      LIMIT 1
+                    ),
+                    'completed',
+                    (
+                      SELECT je.payload
+                      FROM job_events je
+                      WHERE je.job_id = cm.job_id
+                        AND je.event = 'rag_search_call.completed'
+                      ORDER BY je.created_at DESC
+                      LIMIT 1
+                    )
+                  )
+                ),
+                '{}'::jsonb
+              )
+            ) as "ragSearchJson"
       FROM chat_messages cm
       JOIN chat_sessions cs ON cs.id = cm.session_id
       WHERE cm.session_id = $1

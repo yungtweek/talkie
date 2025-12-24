@@ -55,6 +55,25 @@ class PostgresChatRepo(ChatRepositoryPort):
         async with self.pool.acquire() as conn:
             await conn.execute(sql, job_id, session_id, event_type, seq, payload_json)
 
+    async def append_job_event(
+            self,
+            *,
+            job_id: str,
+            user_id: str,
+            session_id: Optional[str],
+            event_type: str,
+            payload: Mapping[str, Any],
+    ) -> None:
+        payload_json = json.dumps(_sanitize_json(payload or {}), ensure_ascii=False, allow_nan=False)
+        sql = (
+            """
+            INSERT INTO job_events (job_id, user_id, session_id, event, payload)
+            VALUES ($1, $2, $3, $4, $5::jsonb);
+            """
+        )
+        async with self.pool.acquire() as conn:
+            await conn.execute(sql, job_id, user_id, session_id, event_type, payload_json)
+
     # -------------------------
     # Finalize assistant message (idempotent upsert)
     # -------------------------

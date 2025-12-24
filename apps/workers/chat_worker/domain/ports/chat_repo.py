@@ -31,6 +31,19 @@ class ChatRepositoryPort(ABC):
         """
         ...
 
+    @abstractmethod
+    async def append_job_event(
+            self,
+            *,
+            job_id: str,
+            user_id: str,
+            session_id: Optional[str],
+            event_type: str,
+            payload: Mapping[str, Any],
+    ) -> None:
+        """Append a job-scoped event to `job_events` (append-only)."""
+        ...
+
     # -------------------------
     # Finalize assistant message (idempotent upsert)
     # -------------------------

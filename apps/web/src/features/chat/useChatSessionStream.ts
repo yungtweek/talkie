@@ -37,8 +37,18 @@ const initialSubmitState: SubmitState = { error: null };
 export function useChatSessionStream(sessionId: string | null) {
   const router = useRouter();
   const pathname = usePathname();
-  const { messages, loading, error, setBusy } = useChatState();
-  const { add, reset, setRag, getRag, updateStream, updateSources } = useChatActions();
+  const { messages, loading, error } = useChatState();
+  const {
+    add,
+    reset,
+    setRag,
+    getRag,
+    updateStream,
+    updateSources,
+    updateRagSearch,
+    markStreamDone,
+  } =
+    useChatActions();
   const hasMeta = useRef(false);
   const { adoptNewSession } = useChatUI();
   const client = useApolloClient();
@@ -53,7 +63,7 @@ export function useChatSessionStream(sessionId: string | null) {
    * Opens SSE streams for assistant responses and session event updates.
    * Supports aborting previous requests to prevent race conditions.
    */
-  const [actionState, runSubmit, isPending] = useActionState<SubmitState, FormData>(
+  const [actionState, runSubmit] = useActionState<SubmitState, FormData>(
     async (prev, formData) => {
       const raw = formData.get('text') ?? formData.get('message');
       const text = typeof raw === 'string' ? raw : '';
@@ -74,7 +84,7 @@ export function useChatSessionStream(sessionId: string | null) {
 
       // Add empty assistant message to stream updates into
       const assistantMsg: ChatEdge = {
-        node: { role: 'assistant', content: '', jobId },
+        node: { role: 'assistant', content: '', jobId, streamDone: false },
       };
       add(assistantMsg);
 
@@ -139,8 +149,10 @@ export function useChatSessionStream(sessionId: string | null) {
         openChatStream(jobId, {
           onText: chunk => updateStream(chunk, jobId),
           onSources: sources => updateSources(sources, jobId),
+          onRagSearch: (status, payload) => updateRagSearch(jobId, status, payload),
           onDone: () => {
             hasMeta.current = false;
+            markStreamDone(jobId);
 
             // Redirect to new session if created
             if (thisSessionId === null && createdId !== null) {
@@ -150,7 +162,10 @@ export function useChatSessionStream(sessionId: string | null) {
               }
             }
           },
-          onError: e => console.error('chatStream error', e),
+          onError: e => {
+            markStreamDone(jobId);
+            console.error('chatStream error', e);
+          },
         });
 
         return { error: null, jobId };
@@ -164,11 +179,6 @@ export function useChatSessionStream(sessionId: string | null) {
     initialSubmitState,
   );
 
-  // Sync loading state with chat store's busy flag
-  useEffect(() => {
-    setBusy(isPending);
-  }, [isPending, setBusy]);
-
   return {
     messages,
     loading,
@@ -176,7 +186,6 @@ export function useChatSessionStream(sessionId: string | null) {
     submitAction: runSubmit,
     add,
     reset,
-    isPending,
     actionState,
   };
 }

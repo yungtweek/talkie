@@ -3,10 +3,9 @@ import React, { useRef, useState } from 'react';
 import TextareaAutosize from 'react-textarea-autosize';
 import { clsx } from 'clsx';
 import ChatModeToggle from '@/components/chat/ChatModeToggle';
-import { useChatUI } from '@/providers/ChatProvider';
 import { useSessionsState } from '@/features/chat/chat.sessions.store';
 import { useChatSessionStream } from '@/features/chat/useChatSessionStream';
-import { useChatState } from '@/features/chat/chat.store';
+import { useChatStreaming } from '@/features/chat/chat.store';
 import {
   InputGroup,
   InputGroupAddon,
@@ -21,12 +20,11 @@ export default function ChatComposer() {
   const { submitAction, loading } = useChatSessionStream(selectedSessionId);
   const [userInput, setUserInput] = useState('');
   const formRef = useRef<HTMLFormElement | null>(null);
-  const { setAwaitingFirstToken } = useChatUI();
-  const { busy } = useChatState();
 
   const isComposing = useRef(false);
 
-  const buttonDisabled = () => !userInput || busy || loading;
+  const isStreaming = useChatStreaming();
+  const buttonDisabled = () => !userInput || isStreaming || loading;
 
   return (
     <form
@@ -34,7 +32,6 @@ export default function ChatComposer() {
       ref={formRef}
       action={submitAction}
       onSubmit={() => {
-        setAwaitingFirstToken(true);
         setTimeout(() => setUserInput(''), 0);
       }}
     >
@@ -75,7 +72,7 @@ export default function ChatComposer() {
             type="submit"
             disabled={buttonDisabled()}
           >
-            {busy ? <Loader2 className="animate-spin" /> : <SendIcon />}
+            {isStreaming ? <Loader2 className="animate-spin" /> : <SendIcon />}
           </InputGroupButton>
         </InputGroupAddon>
       </InputGroup>
