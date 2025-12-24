@@ -72,7 +72,13 @@ class ChatLLMService:
         publish = self._stream_service.make_job_publisher(job_id, user_id)
 
         # Per-request sink for DB side-effects (status/metrics)
-        sink = RepoSink(chat_repo=self._chat_repo, job_id=job_id, session_id=session_id, mode=mode)
+        sink = RepoSink(
+            chat_repo=self._chat_repo,
+            job_id=job_id,
+            user_id=user_id,
+            session_id=session_id,
+            mode=mode,
+        )
         # Mark job as started (for dashboards/observability)
         await sink.on_event(
             event_type="started",
@@ -98,6 +104,7 @@ class ChatLLMService:
                 "rag": rag_cfg,
                 "stream": {
                     "publish": publish,
+                    "record_event": sink.on_job_event,
                     "job_id": job_id,
                     "user_id": user_id,
                     "session_id": session_id,

@@ -9,15 +9,38 @@ logger = getLogger("RepoSink")
 
 
 class RepoSink:
-    def __init__(self, *, chat_repo: ChatRepositoryPort, job_id: str, session_id: str, mode: str = "gen"):
+    def __init__(
+            self,
+            *,
+            chat_repo: ChatRepositoryPort,
+            job_id: str,
+            user_id: str,
+            session_id: str,
+            mode: str = "gen",
+    ):
         self.chat_repo = chat_repo
         self.job_id = job_id
+        self.user_id = user_id
         self.session_id = session_id
         self.mode = mode
         self.seq = 0
 
     async def on_event(self, event_type: str, data: Mapping[str, Any]):
         self.seq += 1
+        if event_type not in {"done", "final"}:
+            return
+        payload = {
+            k: v
+            for k, v in (data or {}).items()
+            if k not in ("event", "type", "jobId", "userId", "sessionId")
+        }
+        await self.chat_repo.append_job_event(
+            job_id=self.job_id,
+            user_id=self.user_id,
+            session_id=self.session_id,
+            event_type=event_type,
+            payload=payload,
+        )
 
     async def on_done(
             self,
@@ -58,6 +81,15 @@ class RepoSink:
             payload={"message": message},
         )
         await self.chat_repo.update_job_status(job_id=self.job_id, status="error", error=message)
+
+    async def on_job_event(self, event_type: str, data: Mapping[str, Any]) -> None:
+        await self.chat_repo.append_job_event(
+            job_id=self.job_id,
+            user_id=self.user_id,
+            session_id=self.session_id,
+            event_type=event_type,
+            payload=data,
+        )
 
 
 def _extract_citations(sources: Optional[Mapping[str, Any]]) -> Sequence[Mapping[str, Any]]:

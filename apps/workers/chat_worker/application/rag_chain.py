@@ -271,6 +271,7 @@ class RagPipeline:
             rag_cfg = inputs.get("rag", {}) or {}
             stream = inputs.get("stream") or {}
             publish = stream.get("publish")
+            record_event = stream.get("record_event")
             job_id = stream.get("job_id")
             user_id = stream.get("user_id")
             session_id = stream.get("session_id")
@@ -285,16 +286,28 @@ class RagPipeline:
             started_at = None
             if publish and job_id and user_id:
                 started_at = monotonic()
+                in_progress_event = RagSearchCallEvent(
+                    event="rag_search_call.in_progress",
+                    job_id=job_id,
+                    user_id=user_id,
+                    session_id=session_id,
+                    query=q,
+                )
                 await safe_publish(
                     publish,
-                    RagSearchCallEvent(
-                        event="rag_search_call.in_progress",
-                        job_id=job_id,
-                        user_id=user_id,
-                        session_id=session_id,
-                        query=q,
-                    ).model_dump(by_alias=True),
+                    in_progress_event.model_dump(by_alias=True, exclude_none=True),
                 )
+                if record_event:
+                    try:
+                        payload = in_progress_event.model_dump(by_alias=True, exclude_none=True)
+                        payload = {
+                            k: v
+                            for k, v in payload.items()
+                            if k not in ("event", "jobId", "userId", "sessionId")
+                        }
+                        await record_event(in_progress_event.event, payload)
+                    except Exception as exc:
+                        logger.warning("[RAG] job event persist failed: %s", exc)
             # Build a fresh retriever for this request and run the initial search.
             docs_seq: Sequence[Document]
             try:
@@ -332,18 +345,30 @@ class RagPipeline:
             docs = list(docs_seq)
             if publish and job_id and user_id and started_at is not None:
                 took_ms = int((monotonic() - started_at) * 1000)
+                completed_event = RagSearchCallEvent(
+                    event="rag_search_call.completed",
+                    job_id=job_id,
+                    user_id=user_id,
+                    session_id=session_id,
+                    query=q,
+                    hits=len(docs),
+                    took_ms=took_ms,
+                )
                 await safe_publish(
                     publish,
-                    RagSearchCallEvent(
-                        event="rag_search_call.completed",
-                        job_id=job_id,
-                        user_id=user_id,
-                        session_id=session_id,
-                        query=q,
-                        hits=len(docs),
-                        took_ms=took_ms,
-                    ).model_dump(by_alias=True),
+                    completed_event.model_dump(by_alias=True, exclude_none=True),
                 )
+                if record_event:
+                    try:
+                        payload = completed_event.model_dump(by_alias=True, exclude_none=True)
+                        payload = {
+                            k: v
+                            for k, v in payload.items()
+                            if k not in ("event", "jobId", "userId", "sessionId")
+                        }
+                        await record_event(completed_event.event, payload)
+                    except Exception as exc:
+                        logger.warning("[RAG] job event persist failed: %s", exc)
             reranked_docs = await self.rerank_docs(docs, q)
             logger.debug("[RAG] reranked_docs: %s", len(reranked_docs))
             mmr_docs = reranked_docs

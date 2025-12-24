@@ -54,10 +54,10 @@ async def llm_runner(
     async def _publish_with_sink(event: dict):
         # Pass-through to original publish
         await publish(event)
-        # Optionally forward to sink for persistence (tokens/sources/usage/heartbeat)
+        # Optionally forward to sink for persistence (tokens/sources/usage/heartbeat/done/final)
         if on_event is not None:
             ev_type = event.get("event") or event.get("type")
-            if ev_type in {"token", "sources", "usage", "heartbeat"}:
+            if ev_type in {"token", "sources", "usage", "heartbeat", "done", "final"}:
                 await on_event(ev_type, event)
 
     # Stream tokens and aggregate a final text from allowed tags (e.g., "final_answer")
