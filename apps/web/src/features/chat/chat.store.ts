@@ -166,7 +166,11 @@ export const chatStore = create<ChatState>((set, get) => ({
     set(st => {
       const next = updateEdgeByJobId(st.edges, jobId, node => ({
         ...node,
-        ragSearch: { status, ...(payload ?? {}) },
+        ragSearch: {
+          status,
+          ...(payload ?? {}),
+          ...(node.ragSearch ?? {}),
+        },
       }));
       return { edges: next };
     }),

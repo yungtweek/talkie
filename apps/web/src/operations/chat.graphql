@@ -14,6 +14,7 @@ query ChatSession($id: ID!, $first: Int = 50) {
           turn
           messageIndex
           sourcesJson
+          ragSearchJson
         }
       }
       pageInfo {

@@ -12,6 +12,7 @@ export interface ChatNode {
   messageIndex?: number | null;
   turn?: number | null;
   sourcesJson?: string | null;
+  ragSearchJson?: string | null;
   jobId?: string | null;
   streamDone?: boolean;
   ragSearch?: {

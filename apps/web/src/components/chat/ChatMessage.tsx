@@ -8,6 +8,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ChatEdge } from '@/features/chat/chat.types';
 import { safeJsonParse } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 
 export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDots?: boolean }) {
@@ -67,6 +68,34 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
     }>;
   }>(chat.node.sourcesJson, { citations: [] }).citations ?? [];
 
+  const ragSearch = useMemo(() => {
+    if (chat.node.ragSearch) {
+      return {
+        inProgress: chat.node.ragSearch.status === 'in_progress' ? chat.node.ragSearch : null,
+        completed: chat.node.ragSearch.status === 'completed' ? chat.node.ragSearch : null,
+      };
+    }
+    if (!chat.node.ragSearchJson) {
+      return null;
+    }
+    const parsed = safeJsonParse<{
+      inProgress?: {
+        query?: string;
+        hits?: number;
+        tookMs?: number;
+      } | null;
+      completed?: {
+        query?: string;
+        hits?: number;
+        tookMs?: number;
+      } | null;
+    }>(chat.node.ragSearchJson, { inProgress: null, completed: null });
+    const inProgress = parsed.inProgress ?? null;
+    const completed = parsed.completed ?? null;
+    if (!inProgress && !completed) return null;
+    return { inProgress, completed };
+  }, [chat.node.ragSearch, chat.node.ragSearchJson]);
+
   const groupedCitations = useMemo(() => {
     const groups = new Map<string, typeof citations>();
     for (const c of citations) {
@@ -93,24 +122,67 @@ export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDo
 
   return (
     <div className={clsx(roleClass, 'prose')} role={chat.node.role}>
-      {chat.node.ragSearch?.status && (
+      {ragSearch && (
         <div className="mb-2 text-xs text-muted-foreground">
-          {chat.node.ragSearch.status === 'in_progress' ? (
-            <span>Searching sources...</span>
-          ) : (
-            <span>
-              Sources ready
-              {typeof chat.node.ragSearch.hits === 'number'
-                ? ` · ${chat.node.ragSearch.hits} hits`
-                : ''}
-              {typeof chat.node.ragSearch.tookMs === 'number'
-                ? ` · ${chat.node.ragSearch.tookMs}ms`
-                : ''}
-            </span>
-          )}
+          <Collapsible defaultOpen={false}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center cursor-pointer justify-between gap-2 text-xs text-muted-foreground"
+              >
+                <span className="font-medium">
+                  RAG Search
+                  {ragSearch.completed ? (
+                    <span>
+                      {' '}
+                      · completed
+                      {typeof ragSearch.completed.hits === 'number'
+                        ? ` · ${ragSearch.completed.hits} hits`
+                        : ''}
+                      {typeof ragSearch.completed.tookMs === 'number'
+                        ? ` · ${ragSearch.completed.tookMs}ms`
+                        : ''}
+                    </span>
+                  ) : (
+                    <span> · in progress</span>
+                  )}
+                </span>
+                <span className="text-xs text-muted-foreground underline">Details</span>
+              </button>
+            </CollapsibleTrigger>
+            {(ragSearch.inProgress || ragSearch.completed) && (
+              <CollapsibleContent className="mt-2">
+                <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="font-medium text-foreground/70">RAG Search</div>
+                  <div className="mt-2 space-y-2">
+                    {ragSearch.inProgress && (
+                      <div className="flex items-center gap-2">
+                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" />
+                        <span>Started</span>
+                      </div>
+                    )}
+                    {ragSearch.completed && (
+                      <div className="flex items-center gap-2">
+                        <span className="h-1.5 w-1.5 rounded-full bg-foreground/60" />
+                        <span>
+                          Completed
+                          {typeof ragSearch.completed.hits === 'number'
+                            ? ` · ${ragSearch.completed.hits} hits`
+                            : ''}
+                          {typeof ragSearch.completed.tookMs === 'number'
+                            ? ` · ${ragSearch.completed.tookMs}ms`
+                            : ''}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CollapsibleContent>
+            )}
+          </Collapsible>
         </div>
       )}
-      {showDots && chat.node.ragSearch?.status !== 'in_progress' && (
+      {showDots && !ragSearch?.inProgress && (
         <div className="mt-0 inline-flex gap-1">
           <span className="inline-block animate-bounce" style={{ animationDelay: '0ms' }}>
             .
