@@ -52,7 +52,17 @@ def stream_key(job_id: str, user_id: str) -> str:
 
 
 # Event type alias shared by publishers and low-level helpers
-EventType = Literal["meta", "token", "sources", "done", "error", "ping", "final"]
+EventType = Literal[
+    "meta",
+    "token",
+    "sources",
+    "done",
+    "error",
+    "ping",
+    "final",
+    "rag_search_call.in_progress",
+    "rag_search_call.completed",
+]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -99,7 +109,17 @@ class StreamService:
         - On `done`, the stream key is set to expire in ~60s (cleanup).
         - Internally calls `_xadd(redis, job_id, user_id, event, data)` with JSON-serialized data.
         """
-        allowed: set[EventType] = {"meta", "token", "sources", "done", "error", "ping", "final"}
+        allowed: set[EventType] = {
+            "meta",
+            "token",
+            "sources",
+            "done",
+            "error",
+            "ping",
+            "final",
+            "rag_search_call.in_progress",
+            "rag_search_call.completed",
+        }
 
         async def publish(evt: Dict[str, Any]) -> str:
             # Expect an 'event' key; everything else goes into 'data'

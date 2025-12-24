@@ -93,7 +93,16 @@ class ChatLLMService:
                 # "filters": {...}  # optional filters can be injected
             }
             chain = self._rag_chain
-            chain_input = {"question": req.message, "rag": rag_cfg}
+            chain_input = {
+                "question": req.message,
+                "rag": rag_cfg,
+                "stream": {
+                    "publish": publish,
+                    "job_id": job_id,
+                    "user_id": user_id,
+                    "session_id": session_id,
+                },
+            }
             run_mode = "rag"
 
         else:

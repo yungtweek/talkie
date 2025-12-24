@@ -1,5 +1,6 @@
 from logging import getLogger
 import math
+from time import monotonic
 
 import weaviate
 from typing import Dict, Any, List, Optional, Sequence, cast
@@ -18,6 +19,8 @@ from chat_worker.application.rag.retrievers.base import RagContext, RetrieveResu
 from chat_worker.application.rag.retrievers.weaviate_near_text import WeaviateNearTextRetriever
 from chat_worker.settings import Settings, RagConfig, WeaviateSearchType
 from chat_worker.application.rag.retrievers.weaviate_hybrid import WeaviateHybridRetriever
+from chat_worker.application.dto.events import RagSearchCallEvent
+from chat_worker.infrastructure.stream.stream_service import safe_publish
 
 
 logger = getLogger("RagPipeline")
@@ -266,6 +269,11 @@ class RagPipeline:
             LLM invocation performed outside this pipeline.
             """
             rag_cfg = inputs.get("rag", {}) or {}
+            stream = inputs.get("stream") or {}
+            publish = stream.get("publish")
+            job_id = stream.get("job_id")
+            user_id = stream.get("user_id")
+            session_id = stream.get("session_id")
             retriever = self.build_retriever(
                 top_k=rag_cfg.get("topK"),
                 mmq=rag_cfg.get("mmq"),
@@ -274,6 +282,19 @@ class RagPipeline:
                 alpha=rag_cfg.get("alpha"),
             )
             q = inputs["question"]
+            started_at = None
+            if publish and job_id and user_id:
+                started_at = monotonic()
+                await safe_publish(
+                    publish,
+                    RagSearchCallEvent(
+                        event="rag_search_call.in_progress",
+                        job_id=job_id,
+                        user_id=user_id,
+                        session_id=session_id,
+                        query=q,
+                    ).model_dump(by_alias=True),
+                )
             # Build a fresh retriever for this request and run the initial search.
             docs_seq: Sequence[Document]
             try:
@@ -309,6 +330,20 @@ class RagPipeline:
                 else:
                     raise last_err
             docs = list(docs_seq)
+            if publish and job_id and user_id and started_at is not None:
+                took_ms = int((monotonic() - started_at) * 1000)
+                await safe_publish(
+                    publish,
+                    RagSearchCallEvent(
+                        event="rag_search_call.completed",
+                        job_id=job_id,
+                        user_id=user_id,
+                        session_id=session_id,
+                        query=q,
+                        hits=len(docs),
+                        took_ms=took_ms,
+                    ).model_dump(by_alias=True),
+                )
             reranked_docs = await self.rerank_docs(docs, q)
             logger.debug("[RAG] reranked_docs: %s", len(reranked_docs))
             mmr_docs = reranked_docs
