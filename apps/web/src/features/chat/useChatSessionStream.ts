@@ -37,7 +37,7 @@ const initialSubmitState: SubmitState = { error: null };
 export function useChatSessionStream(sessionId: string | null) {
   const router = useRouter();
   const pathname = usePathname();
-  const { messages, loading, error, setBusy } = useChatState();
+  const { messages, loading, error } = useChatState();
   const {
     add,
     reset,
@@ -63,7 +63,7 @@ export function useChatSessionStream(sessionId: string | null) {
    * Opens SSE streams for assistant responses and session event updates.
    * Supports aborting previous requests to prevent race conditions.
    */
-  const [actionState, runSubmit, isPending] = useActionState<SubmitState, FormData>(
+  const [actionState, runSubmit] = useActionState<SubmitState, FormData>(
     async (prev, formData) => {
       const raw = formData.get('text') ?? formData.get('message');
       const text = typeof raw === 'string' ? raw : '';
@@ -162,7 +162,10 @@ export function useChatSessionStream(sessionId: string | null) {
               }
             }
           },
-          onError: e => console.error('chatStream error', e),
+          onError: e => {
+            markStreamDone(jobId);
+            console.error('chatStream error', e);
+          },
         });
 
         return { error: null, jobId };
@@ -176,11 +179,6 @@ export function useChatSessionStream(sessionId: string | null) {
     initialSubmitState,
   );
 
-  // Sync loading state with chat store's busy flag
-  useEffect(() => {
-    setBusy(isPending);
-  }, [isPending, setBusy]);
-
   return {
     messages,
     loading,
@@ -188,7 +186,6 @@ export function useChatSessionStream(sessionId: string | null) {
     submitAction: runSubmit,
     add,
     reset,
-    isPending,
     actionState,
   };
 }

@@ -1,28 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { clsx } from 'clsx';
 import ChatMessage from '@/components/chat/ChatMessage';
 import { useSessionsState } from '@/features/chat/chat.sessions.store';
 import { useChatSessionStream } from '@/features/chat/useChatSessionStream';
-import { useChatUI } from '@/providers/ChatProvider';
+import { useChatStreaming } from '@/features/chat/chat.store';
 import { ChatEdge } from '@/features/chat/chat.types';
 import { Greeting } from '@/components/chat/Greeting';
 
 export default function MessagesPane() {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const { awaitingFirstToken, setAwaitingFirstToken } = useChatUI();
   const { selectedSessionId } = useSessionsState();
-  const { messages, loading, isPending } = useChatSessionStream(selectedSessionId);
-
-  useEffect(() => {
-    console.log('messages changed', messages);
-    if (!awaitingFirstToken) return;
-    const last = messages[messages.length - 1];
-    if (last?.node?.role === 'assistant' && (last?.node?.content?.trim()?.length ?? 0) > 0) {
-      setAwaitingFirstToken(false);
-    }
-  }, [messages, awaitingFirstToken]);
-
-  const isStreamingNow = isPending || awaitingFirstToken || loading;
+  const { messages } = useChatSessionStream(selectedSessionId);
+  const isStreamingNow = useChatStreaming();
 
   useEffect(() => {
     if (!containerRef.current) return;

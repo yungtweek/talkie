@@ -6,14 +6,15 @@ import { ChatSessionDocument } from '@/gql/graphql';
 import type { ChatSessionQuery, ChatSessionQueryVariables } from '@/gql/graphql';
 import { z } from 'zod';
 
+export const selectIsStreaming = (edges: ChatEdge[]) =>
+  edges.some(m => m?.node?.role === 'assistant' && m?.node?.streamDone === false);
+
 interface ChatState {
   edges: ChatEdge[];
   loading: boolean;
   error: string | null;
 
   fetchBySession: (sessionId: string | null, signal?: AbortSignal) => Promise<void>;
-  busy: boolean;
-  setBusy: (value: boolean) => void;
   add: (m: ChatEdge) => void;
   appendLive: (token: string, jobId: string) => void;
   updateSources: (sources: unknown, jobId: string) => void;
@@ -60,8 +61,6 @@ const updateEdgeByJobId = (
 export const chatStore = create<ChatState>((set, get) => ({
   edges: [],
   loading: false,
-  busy: false,
-  setBusy: (value: boolean) => set({ busy: value }),
   error: null,
 
   ragBySession: {},
@@ -190,13 +189,15 @@ export function useChatState() {
     useShallow(s => ({
       messages: s.edges,
       loading: s.loading,
-      busy: s.busy,
-      setBusy: s.setBusy,
       error: s.error,
       pendingRag: s.pendingRag,
       ragBySession: s.ragBySession,
     })),
   );
+}
+
+export function useChatStreaming() {
+  return chatStore(s => selectIsStreaming(s.edges));
 }
 
 export function useChatActions() {
