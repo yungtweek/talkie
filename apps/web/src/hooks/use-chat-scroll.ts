@@ -90,7 +90,6 @@ export function useChatScrollAnchors(
   const [isAutoScrollEnabled, setIsAutoScrollEnabled] = useState(true);
   const autoScrollEnabledRef = useRef(true);
   const isProgrammaticScrollRef = useRef(false);
-  const hasInitialScrollRef = useRef(false);
   const prevUserCountRef = useRef(0);
   const prevIsStreamingRef = useRef(isStreaming);
   const nearBottomThreshold = 200;
@@ -132,7 +131,6 @@ export function useChatScrollAnchors(
 
   useEffect(() => {
     if (messageCount === 0) {
-      hasInitialScrollRef.current = false;
       prevUserCountRef.current = 0;
       setAutoScrollEnabled(true);
     }
@@ -148,11 +146,7 @@ export function useChatScrollAnchors(
     if (!autoScrollEnabledRef.current && !isNewUserMessage) return;
     const lastAssistant = getLastMessageByRole(container, 'assistant');
     const lastUser = getLastMessageByRole(container, 'user');
-    const anchor = isNewUserMessage
-      ? lastUser
-      : hasInitialScrollRef.current
-        ? lastAssistant ?? lastUser
-        : lastUser ?? lastAssistant;
+    const anchor = isNewUserMessage ? lastUser ?? lastAssistant : lastAssistant ?? lastUser;
     if (!anchor) return;
 
     const top = getOffsetTopWithin(container, anchor) - 46;
@@ -160,7 +154,6 @@ export function useChatScrollAnchors(
       setAutoScrollEnabled(true);
     }
     scrollToTop(container, top, 'smooth');
-    hasInitialScrollRef.current = true;
   }, [messageCount, userCount, containerRef]);
 
   useEffect(() => {
