@@ -20,13 +20,24 @@ export default function ChatMessage({
   chat: ChatEdge;
   showDots?: boolean;
 }) {
+  type CodeBlockProps = React.HTMLAttributes<HTMLElement> & {
+    inline?: boolean;
+    node?: unknown;
+  };
+
   const { isCopied, copy } = useCopyToClipboard();
-  const CodeBlock = ({ className, children, node: _node, ...props }: any) => {
-    const match = /language-(\w+)/.exec(String(className || ''));
-    const raw = String(children).replace(/\n$/, '');
-    const code = stripIndent(raw);
+
+  const CodeBlock = ({ className, children, node: _node, ...props }: CodeBlockProps) => {
+    const match = /language-(\w+)/.exec(className ?? '');
+    const raw =
+      typeof children === 'string' || typeof children === 'number'
+        ? String(children)
+        : Array.isArray(children)
+          ? children.join('')
+          : '';
+    const code = stripIndent(raw.replace(/\n$/, ''));
     return match ? (
-      <pre className="overflow-x-auto rounded-xl p-0" style={{paddingLeft: 0, paddingRight: 0}}>
+      <pre className="overflow-x-auto rounded-xl p-0" style={{ paddingLeft: 0, paddingRight: 0 }}>
         <div className="border-b border-border bg-(--border-mid) px-4 py-1 opacity-70 text-muted-foreground">
           {match[1]}
         </div>
@@ -35,13 +46,12 @@ export default function ChatMessage({
           style={vscDarkPlus}
           language={match[1]}
           customStyle={{ margin: 0, padding: '1.5rem 1.5rem' }}
-          {...props}
         >
           {code}
         </SyntaxHighlighter>
       </pre>
     ) : (
-      <code className={String(className || '')} {...props}>
+      <code className={className} {...props}>
         {children}
       </code>
     );

@@ -5,6 +5,7 @@ import { clsx } from 'clsx';
 import { useChatActions } from '@/features/chat/chat.store';
 import { Button } from '@/components/ui/button';
 import { FileText } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ChatToggleModuleProps {
   sessionId: string | null;
@@ -17,8 +18,9 @@ export default function ChatModeToggle({ sessionId }: ChatToggleModuleProps) {
     <>
       <Button
         type="button"
-        variant="secondary"
+        variant="ghost"
         size="sm"
+        className={cn('text-muted-foreground', rag && 'text-accent-foreground bg-accent')}
         onClick={() => toggleRag(sessionId)}
       >
         <FileText />
