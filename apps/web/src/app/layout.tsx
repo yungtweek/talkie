@@ -4,6 +4,7 @@ import { IBM_Plex_Sans_KR } from 'next/font/google';
 import '@/app/globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { clsx } from 'clsx';
+import { Toaster } from 'sonner';
 
 const ibmPlexKr = IBM_Plex_Sans_KR({
   variable: '--font-ibm-plex-kr',
@@ -27,6 +28,7 @@ export default function TalkieLayout({ children }: { children: ReactNode }) {
           disableTransitionOnChange
         >
           {children}
+          <Toaster position="top-right"/>
         </ThemeProvider>
       </body>
     </html>
