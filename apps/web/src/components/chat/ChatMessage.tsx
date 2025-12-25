@@ -13,6 +13,51 @@ import { Button } from '@/components/ui/button';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 
+type CodeBlockProps = React.HTMLAttributes<HTMLElement> & {
+  inline?: boolean;
+  node?: unknown;
+};
+
+function stripIndent(input: string) {
+  const s = input.replace(/^\n/, '').replace(/\s+$/, '');
+  const lines = s.split('\n');
+  const indents = lines
+    .filter(l => l.trim().length > 0)
+    .map(l => l.match(/^(\s*)/)?.[1].length ?? 0);
+  const min = indents.length ? Math.min(...indents) : 0;
+  return lines.map(l => l.slice(min)).join('\n');
+}
+
+const CodeBlock = ({ className, children, node: _node, ...props }: CodeBlockProps) => {
+  const match = /language-(\w+)/.exec(className ?? '');
+  const raw =
+    typeof children === 'string' || typeof children === 'number'
+      ? String(children)
+      : Array.isArray(children)
+        ? children.join('')
+        : '';
+  const code = stripIndent(raw.replace(/\n$/, ''));
+  return match ? (
+    <pre className="overflow-x-auto rounded-xl p-0" style={{ paddingLeft: 0, paddingRight: 0 }}>
+      <div className="border-b border-border bg-(--border-mid) px-4 py-1 opacity-70 text-muted-foreground">
+        {match[1]}
+      </div>
+      <SyntaxHighlighter
+        PreTag="div"
+        style={vscDarkPlus}
+        language={match[1]}
+        customStyle={{ margin: 0, padding: '1.5rem 1.5rem' }}
+      >
+        {code}
+      </SyntaxHighlighter>
+    </pre>
+  ) : (
+    <code className={className} {...props}>
+      {children}
+    </code>
+  );
+};
+
 export default function ChatMessage({
   chat,
   showDots,
@@ -20,52 +65,7 @@ export default function ChatMessage({
   chat: ChatEdge;
   showDots?: boolean;
 }) {
-  type CodeBlockProps = React.HTMLAttributes<HTMLElement> & {
-    inline?: boolean;
-    node?: unknown;
-  };
-
   const { isCopied, copy } = useCopyToClipboard();
-
-  const CodeBlock = ({ className, children, node: _node, ...props }: CodeBlockProps) => {
-    const match = /language-(\w+)/.exec(className ?? '');
-    const raw =
-      typeof children === 'string' || typeof children === 'number'
-        ? String(children)
-        : Array.isArray(children)
-          ? children.join('')
-          : '';
-    const code = stripIndent(raw.replace(/\n$/, ''));
-    return match ? (
-      <pre className="overflow-x-auto rounded-xl p-0" style={{ paddingLeft: 0, paddingRight: 0 }}>
-        <div className="border-b border-border bg-(--border-mid) px-4 py-1 opacity-70 text-muted-foreground">
-          {match[1]}
-        </div>
-        <SyntaxHighlighter
-          PreTag="div"
-          style={vscDarkPlus}
-          language={match[1]}
-          customStyle={{ margin: 0, padding: '1.5rem 1.5rem' }}
-        >
-          {code}
-        </SyntaxHighlighter>
-      </pre>
-    ) : (
-      <code className={className} {...props}>
-        {children}
-      </code>
-    );
-  };
-
-  function stripIndent(input: string) {
-    const s = input.replace(/^\n/, '').replace(/\s+$/, '');
-    const lines = s.split('\n');
-    const indents = lines
-      .filter(l => l.trim().length > 0)
-      .map(l => l.match(/^(\s*)/)?.[1].length ?? 0);
-    const min = indents.length ? Math.min(...indents) : 0;
-    return lines.map(l => l.slice(min)).join('\n');
-  }
 
   const role = chat.node.role;
   const messageId = chat.node.id ?? chat.node.messageIndex;

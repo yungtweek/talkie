@@ -11,12 +11,28 @@ type StreamHandlers = {
 
 export function openChatStream(jobId: string, handlers: StreamHandlers) {
   const es = new EventSource(`/api/chat/${jobId}`, { withCredentials: true });
+  let textBuffer = '';
+  let flushHandle: number | null = null;
+
+  const flushText = () => {
+    if (!textBuffer) return;
+    const chunk = textBuffer;
+    textBuffer = '';
+    flushHandle = null;
+    handlers.onText?.(chunk);
+  };
+
+  const scheduleFlush = () => {
+    if (flushHandle !== null) return;
+    flushHandle = requestAnimationFrame(flushText);
+  };
 
   es.addEventListener('token', (e: MessageEvent) => {
     const d = JSON.parse(e.data);
     const chunk = d.text ?? d.content ?? '';
     if (chunk) {
-      handlers.onText?.(chunk);
+      textBuffer += chunk;
+      scheduleFlush();
     }
   });
 
@@ -54,11 +70,21 @@ export function openChatStream(jobId: string, handlers: StreamHandlers) {
   });
 
   es.addEventListener('done', () => {
+    if (flushHandle !== null) {
+      cancelAnimationFrame(flushHandle);
+      flushHandle = null;
+    }
+    flushText();
     es.close();
     handlers.onDone?.();
   });
 
   es.addEventListener('error', e => {
+    if (flushHandle !== null) {
+      cancelAnimationFrame(flushHandle);
+      flushHandle = null;
+    }
+    flushText();
     es.close();
     handlers.onError?.(e);
   });

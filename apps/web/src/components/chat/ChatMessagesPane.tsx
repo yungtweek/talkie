@@ -34,7 +34,7 @@ export default function MessagesPane() {
     <div className={clsx('h-full min-h-0 w-full flex-1 overflow-auto mx-auto')} ref={containerRef}>
       <div className="w-full max-w-4xl mx-auto px-4 ">
         {messages.length === 0 && <Greeting />}
-        <div className={clsx('flex min-h-full flex-col mb-9')}>
+        <div className={clsx('flex min-h-full flex-col')}>
           {messages.map((chat, i) => (
             <ChatMessage
               chat={chat}
@@ -47,6 +47,7 @@ export default function MessagesPane() {
               }
             />
           ))}
+          <div className='h-9' />
         </div>
         {!isAutoScrollEnabled && (
           <div className="sticky bottom-6 z-10 flex justify-center">
