@@ -125,6 +125,8 @@ export default function ChatMessage({
     return { inProgress, completed };
   }, [chat.node.ragSearch, chat.node.ragSearchJson]);
 
+  const isRagSearchActive = Boolean(ragSearch?.inProgress && !ragSearch?.completed);
+
   const groupedCitations = useMemo(() => {
     const groups = new Map<string, typeof citations>();
     for (const c of citations) {
@@ -212,8 +214,8 @@ export default function ChatMessage({
             </Collapsible>
           </div>
         )}
-        {showDots && !ragSearch?.inProgress && (
-          <div className="mt-0 inline-flex gap-1">
+      {showDots && !isRagSearchActive && (
+        <div className="mt-0 inline-flex gap-1">
             <span className="inline-block animate-bounce" style={{ animationDelay: '0ms' }}>
               .
             </span>

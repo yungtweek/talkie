@@ -5,6 +5,12 @@ import { apolloClient } from '@/lib/apollo/apollo.client';
 import { ChatSessionDocument } from '@/gql/graphql';
 import type { ChatSessionQuery, ChatSessionQueryVariables } from '@/gql/graphql';
 import { z } from 'zod';
+import { safeJsonParse } from '@/lib/utils';
+
+type RagSearchSnapshot = {
+  inProgress?: { hits?: number; tookMs?: number; query?: string } | null;
+  completed?: { hits?: number; tookMs?: number; query?: string } | null;
+};
 
 export const selectIsStreaming = (edges: ChatEdge[]) =>
   edges.some(m => m?.node?.role === 'assistant' && m?.node?.streamDone === false);
@@ -166,11 +172,29 @@ export const chatStore = create<ChatState>((set, get) => ({
     set(st => {
       const next = updateEdgeByJobId(st.edges, jobId, node => ({
         ...node,
-        ragSearch: {
-          ...(node.ragSearch ?? {}),
-          ...(payload ?? {}),
-          status,
-        },
+        ragSearchJson: (() => {
+          const parsed = safeJsonParse<RagSearchSnapshot>(node.ragSearchJson, {
+            inProgress: null,
+            completed: null,
+          });
+          let inProgress = parsed.inProgress ?? null;
+          let completed = parsed.completed ?? null;
+
+          if (!node.ragSearchJson && node.ragSearch) {
+            const { status: priorStatus, ...rest } = node.ragSearch;
+            if (priorStatus === 'in_progress' && !inProgress) inProgress = rest;
+            if (priorStatus === 'completed' && !completed) completed = rest;
+          }
+
+          if (status === 'in_progress') {
+            inProgress = { ...(inProgress ?? {}), ...(payload ?? {}) };
+          } else {
+            completed = { ...(completed ?? {}), ...(payload ?? {}) };
+          }
+
+          return JSON.stringify({ inProgress, completed });
+        })(),
+        ragSearch: undefined,
       }));
       return { edges: next };
     }),
