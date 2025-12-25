@@ -143,6 +143,8 @@ export function useChatScrollAnchors(
     const isNewUserMessage = userCount > prevUserCountRef.current;
     prevUserCountRef.current = userCount;
 
+    const shouldAutoScroll = Boolean(isStreaming || isNewUserMessage);
+    if (!shouldAutoScroll) return;
     if (!autoScrollEnabledRef.current && !isNewUserMessage) return;
     const lastAssistant = getLastMessageByRole(container, 'assistant');
     const lastUser = getLastMessageByRole(container, 'user');
@@ -154,11 +156,12 @@ export function useChatScrollAnchors(
       setAutoScrollEnabled(true);
     }
     scrollToTop(container, top, 'smooth');
-  }, [messageCount, userCount, containerRef]);
+  }, [messageCount, userCount, isStreaming, containerRef]);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    if (!isStreaming) return;
     const anchor = getLastMessageByRole(container, 'assistant');
     if (!anchor) return;
 
@@ -182,7 +185,7 @@ export function useChatScrollAnchors(
         cancelAnimationFrame(rafId);
       }
     };
-  }, [messageCount, containerRef]);
+  }, [messageCount, isStreaming, containerRef]);
 
   useEffect(() => {
     const wasStreaming = prevIsStreamingRef.current;
