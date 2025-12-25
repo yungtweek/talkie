@@ -20,6 +20,9 @@ class MetricsRepositoryPort(ABC):
     - completion_tokens: int | None
     - total_tokens: int | None
     - latency_ms: int | None
+    - queue_ms: int | None
+    - published_to_first_token_ms: int | None
+    - rag_ms: int | None
     - status: Literal['queued','running','succeeded','failed','canceled'] | str
     - error: str | None
     - created_at / updated_at: datetime | str (ISO)
@@ -37,4 +40,10 @@ class MetricsRepositoryPort(ABC):
         Create or update a message-level metrics row (per streamed segment or final).
         - Idempotent per message_id (or (job_id, segment_id) depending on schema).
         - `row` is a flat mapping validated by the concrete adapter.
+        """
+
+    @abstractmethod
+    async def db_time_offset_ms(self) -> int | None:
+        """
+        Return cached DB time offset in milliseconds (db_now_ms - local_now_ms).
         """

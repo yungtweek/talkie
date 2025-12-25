@@ -69,6 +69,12 @@ class ChatLLMService:
         job_id = req.job_id
         user_id = req.user_id
         session_id = req.session_id
+        queue_ms = None
+        if req.outbox_created_at is not None and req.outbox_published_at is not None:
+            queue_ms = max(
+                0,
+                int((req.outbox_published_at - req.outbox_created_at).total_seconds() * 1000),
+            )
         # Build event publisher bound to (job_id, user_id)
         publish = self._stream_service.make_job_publisher(job_id, user_id)
 
@@ -140,6 +146,8 @@ class ChatLLMService:
             publish=publish,
             messages=messages or [],  # [] for RAG
             metrics_repo=self._metrics_repo,
+            queue_ms=queue_ms,
+            outbox_published_at=req.outbox_published_at,
             on_event=sink.on_event,
             on_done=sink.on_done,
             on_error=sink.on_error,

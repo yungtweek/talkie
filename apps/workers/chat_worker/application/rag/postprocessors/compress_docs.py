@@ -46,14 +46,15 @@ async def compress_docs(
     max_context: int | None,
     llm_compressor: LLMContextualCompressor | Any | None = None,
     use_llm: bool = False,
-) -> list[Document]:
+) -> tuple[list[Document], int, bool]:
     compressor = HeuristicCompressor(embeddings=embeddings, max_context=max_context)
     heuristic_docs = compressor.compress_docs(query=query, docs=docs)
+    heuristic_hits = len(heuristic_docs)
 
     if not use_llm or llm_compressor is None:
-        return heuristic_docs
+        return heuristic_docs, heuristic_hits, False
     if not _should_apply_llm(heuristic_docs, max_context=max_context):
-        return heuristic_docs
+        return heuristic_docs, heuristic_hits, False
 
     try:
         if hasattr(llm_compressor, "acompress_docs"):
@@ -62,6 +63,8 @@ async def compress_docs(
             out = llm_compressor.compress_docs(query=query, docs=heuristic_docs)
     except Exception as e:
         logger.warning("[RAG][compress][llm] failed: %s", e)
-        return heuristic_docs
+        return heuristic_docs, heuristic_hits, False
 
-    return list(out) if out else heuristic_docs
+    if out:
+        return list(out), heuristic_hits, True
+    return heuristic_docs, heuristic_hits, False

@@ -31,6 +31,9 @@ CREATE TABLE llm_metrics
     gen_time_ms       double precision,
     total_ms          double precision,
     tok_per_sec       double precision,
+    queue_ms          double precision,
+    published_to_first_token_ms double precision,
+    rag_ms            double precision,
 
     response_status   smallint             DEFAULT 0,
     error_message     text,
@@ -59,8 +62,11 @@ COMMENT ON COLUMN llm_metrics.completion_tokens IS 'Token count of generated com
 COMMENT ON COLUMN llm_metrics.total_tokens IS 'Computed total = prompt_tokens + completion_tokens.';
 COMMENT ON COLUMN llm_metrics.ttft_ms IS 'Time-to-first-token in milliseconds.';
 COMMENT ON COLUMN llm_metrics.gen_time_ms IS 'Generation duration (first to last token).';
-COMMENT ON COLUMN llm_metrics.total_ms IS 'End-to-end total latency (request to done).';
+COMMENT ON COLUMN llm_metrics.total_ms IS 'End-to-end total latency (queue_ms + rag_ms + worker LLM) in milliseconds.';
 COMMENT ON COLUMN llm_metrics.tok_per_sec IS 'Throughput: total_tokens / total_ms * 1000.';
+COMMENT ON COLUMN llm_metrics.queue_ms IS 'Outbox queue delay (created_at -> published_at) in milliseconds.';
+COMMENT ON COLUMN llm_metrics.published_to_first_token_ms IS 'Latency from outbox published_at to first token (DB clock).';
+COMMENT ON COLUMN llm_metrics.rag_ms IS 'RAG preprocessing duration (retrieval + compression + prompt build) in milliseconds.';
 COMMENT ON COLUMN llm_metrics.response_status IS 'Response code (0=OK, 1=TIMEOUT, 2=ERROR, etc.).';
 COMMENT ON COLUMN llm_metrics.error_message IS 'Error text for failed requests (truncated if too long).';
 COMMENT ON COLUMN llm_metrics.created_at IS 'Insertion timestamp.';
@@ -157,6 +163,9 @@ SELECT id,
        gen_time_ms,
        total_ms,
        tok_per_sec,
+       queue_ms,
+       published_to_first_token_ms,
+       rag_ms,
        output_chars
 FROM llm_metrics
 ;
@@ -167,6 +176,15 @@ COMMENT ON VIEW llm_metrics_compact IS 'Lightweight view for aggregated latency 
 -- Migration helpers (for existing databases)
 ALTER TABLE llm_metrics
     ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'unknown';
+
+ALTER TABLE llm_metrics
+    ADD COLUMN IF NOT EXISTS queue_ms double precision;
+
+ALTER TABLE llm_metrics
+    ADD COLUMN IF NOT EXISTS published_to_first_token_ms double precision;
+
+ALTER TABLE llm_metrics
+    ADD COLUMN IF NOT EXISTS rag_ms double precision;
 
 CREATE INDEX IF NOT EXISTS idx_llm_metrics_provider_created_at
     ON llm_metrics (provider, created_at DESC);

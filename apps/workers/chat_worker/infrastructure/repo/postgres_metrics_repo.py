@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncpg
+from time import monotonic, time
 from typing import Any, Mapping
 from chat_worker.domain.ports.metrics_repo import MetricsRepositoryPort
 
@@ -7,6 +8,9 @@ from chat_worker.domain.ports.metrics_repo import MetricsRepositoryPort
 class PostgresMetricsRepo(MetricsRepositoryPort):
     def __init__(self, pool: asyncpg.Pool):
         self.pool = pool
+        self._db_time_offset_ms: int | None = None
+        self._db_time_offset_expires_at: float = 0.0
+        self._db_time_offset_ttl_sec = 10.0
 
     async def upsert_job(self, row: Mapping[str, Any]) -> None:
         sql = """
@@ -16,13 +20,19 @@ class PostgresMetricsRepo(MetricsRepositoryPort):
                   use_rag, rag_hits, count_eot,
                   prompt_chars, prompt_tokens, output_chars, completion_tokens,
                   ttft_ms, gen_time_ms, total_ms, tok_per_sec,
+                  queue_ms,
+                  published_to_first_token_ms,
+                  rag_ms,
                   response_status, error_message)
               VALUES ($1, $2, $3, $4, $5,
                       COALESCE($6, 'unknown'), COALESCE($7, 'unknown'), $8, COALESCE($9, 'unknown'),
                       COALESCE($10, false), COALESCE($11, 0), COALESCE($12, true),
                       COALESCE($13, 0), COALESCE($14, 0), COALESCE($15, 0), COALESCE($16, 0),
                       $17, $18, $19, $20,
-                      COALESCE($21, 0), $22) \
+                      $21,
+                      $22,
+                      $23,
+                      COALESCE($24, 0), $25) \
               """
         args = (
             row.get("request_id"),
@@ -45,6 +55,9 @@ class PostgresMetricsRepo(MetricsRepositoryPort):
             row.get("gen_time_ms"),
             row.get("total_ms"),
             row.get("tok_per_sec"),
+            row.get("queue_ms"),
+            row.get("published_to_first_token_ms"),
+            row.get("rag_ms"),
             row.get("response_status"),
             row.get("error_message"),
         )
@@ -53,3 +66,21 @@ class PostgresMetricsRepo(MetricsRepositoryPort):
 
     async def upsert_message(self, row: Mapping[str, Any]) -> None:
         pass
+
+    async def db_time_offset_ms(self) -> int | None:
+        now = monotonic()
+        if self._db_time_offset_ms is not None and now < self._db_time_offset_expires_at:
+            return self._db_time_offset_ms
+        sql = "SELECT clock_timestamp() AS now"
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(sql)
+            if not row or row.get("now") is None:
+                return self._db_time_offset_ms
+            db_now_ms = int(row["now"].timestamp() * 1000)
+            local_now_ms = int(time() * 1000)
+            self._db_time_offset_ms = db_now_ms - local_now_ms
+            self._db_time_offset_expires_at = now + self._db_time_offset_ttl_sec
+            return self._db_time_offset_ms
+        except Exception:
+            return self._db_time_offset_ms

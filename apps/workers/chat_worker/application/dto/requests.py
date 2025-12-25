@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime
 from typing import Literal
 
 from chat_worker.application.dto.common import MyBaseModel
@@ -13,6 +14,8 @@ class ChatRequest(MyBaseModel):
     session_id: str
     message: str
     mode: Literal["gen", "rag"] = "gen"
+    outbox_created_at: datetime | None = None
+    outbox_published_at: datetime | None = None
 
 
 class TitleRequest(MyBaseModel):
