@@ -68,6 +68,7 @@ export default function ChatMessage({
   }
 
   const role = chat.node.role;
+  const messageId = chat.node.id ?? chat.node.messageIndex;
   const wrapperClass =
     role === 'user'
       ? 'group ml-auto w-fit max-w-[80%] flex flex-col'
@@ -153,7 +154,12 @@ export default function ChatMessage({
 
   return (
     <>
-    <div className={clsx(wrapperClass, 'prose')} role={chat.node.role}>
+      <div
+        className={clsx(wrapperClass, 'prose')}
+        role={chat.node.role}
+        data-role={chat.node.role}
+        data-message-id={messageId ?? undefined}
+      >
         {ragSearch && (
           <div className="mb-2 text-xs text-muted-foreground">
             <Collapsible defaultOpen={false}>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { clsx } from 'clsx';
 import ChatMessage from '@/components/chat/ChatMessage';
 import { useSessionsState } from '@/features/chat/chat.sessions.store';
@@ -6,6 +6,9 @@ import { useChatSessionStream } from '@/features/chat/useChatSessionStream';
 import { useChatStreaming } from '@/features/chat/chat.store';
 import { ChatEdge } from '@/features/chat/chat.types';
 import { Greeting } from '@/components/chat/Greeting';
+import { useChatScrollAnchors } from '@/hooks/use-chat-scroll';
+import { Button } from '@/components/ui/button';
+import { IconArrowDown } from '@tabler/icons-react';
 
 export default function MessagesPane() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -13,14 +16,11 @@ export default function MessagesPane() {
   const { messages } = useChatSessionStream(selectedSessionId);
   const isStreamingNow = useChatStreaming();
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const userChat = containerRef.current.querySelectorAll('li[role="user"]');
-    if (userChat.length > 0) {
-      const lastUserChat = userChat[userChat.length - 1];
-      lastUserChat.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
-    }
-  }, [messages]);
+  const { isAutoScrollEnabled, resumeAutoScroll } = useChatScrollAnchors(
+    containerRef,
+    messages,
+    isStreamingNow,
+  );
 
   const isAssistant = (c: ChatEdge) => c.node.role === 'assistant';
   const lastAssistantIndex = (() => {
@@ -33,8 +33,8 @@ export default function MessagesPane() {
   return (
     <div className={clsx('h-full min-h-0 w-full flex-1 overflow-auto mx-auto')} ref={containerRef}>
       <div className="w-full max-w-4xl mx-auto px-4 ">
-        {messages.length ===0 && <Greeting />}
-        <div className={clsx('flex min-h-full flex-col pb-24')}>
+        {messages.length === 0 && <Greeting />}
+        <div className={clsx('flex min-h-full flex-col mb-9')}>
           {messages.map((chat, i) => (
             <ChatMessage
               chat={chat}
@@ -48,6 +48,21 @@ export default function MessagesPane() {
             />
           ))}
         </div>
+        {!isAutoScrollEnabled && (
+          <div className="sticky bottom-6 z-10 flex justify-center">
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-sm"
+              onClick={() =>
+                resumeAutoScroll({ scrollToBottom: !isStreamingNow, behavior: 'smooth' })
+              }
+              aria-label="Resume auto-scroll"
+            >
+              <IconArrowDown />
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
