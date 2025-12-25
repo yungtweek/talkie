@@ -143,6 +143,8 @@ class MetricsCallback(AsyncCallbackHandler):
             persist: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
             token_len: Optional[Callable[[str], int]] = None,
             allowed_tags: Optional[Set[str]] = None,
+            queue_ms: Optional[int] = None,
+            first_token_delta_ms: Optional[Callable[[], Awaitable[Optional[int]]]] = None,
     ) -> None:
         self.job_id = job_id
         self.mode = mode
@@ -151,6 +153,9 @@ class MetricsCallback(AsyncCallbackHandler):
         self.sink = sink
         self.persist = persist
         self.token_len = token_len  # text -> token count (e.g., via tiktoken/transformers)
+        self._queue_ms: Optional[int] = queue_ms
+        self._first_token_delta_ms = first_token_delta_ms
+        self._rag_ms: Optional[int] = None
 
         # Only record metrics for runs that include at least one of these tags (e.g., {"final_answer"})
         self.allowed_tags: Optional[Set[str]] = set(allowed_tags) if allowed_tags else None
@@ -164,6 +169,7 @@ class MetricsCallback(AsyncCallbackHandler):
         self._tokens_out: int = 0
         self._error_code: Optional[str] = None
         self._first_token_at: Optional[float] = None
+        self._published_to_first_token_ms: Optional[int] = None
         self._gen_parts: List[str] = []
         self._prompt_tokenized: bool = False
 
@@ -197,10 +203,18 @@ class MetricsCallback(AsyncCallbackHandler):
             "latencyMs": latency_ms,
             "ttftMs": ttft_ms,
             "genTimeMs": gen_time_ms,
+            "queueMs": self._queue_ms,
+            "publishedToFirstTokenMs": self._published_to_first_token_ms,
+            "ragMs": self._rag_ms,
             "tps": tps,
             "finished": self._finished,
             "errorCode": self._error_code,
         }
+
+    def set_rag_ms(self, rag_ms: Optional[int]) -> None:
+        if rag_ms is None:
+            return
+        self._rag_ms = rag_ms
 
     async def _emit(self, event: str) -> None:
         """Send metrics to external sink (fallback to log if none provided)."""
@@ -218,6 +232,13 @@ class MetricsCallback(AsyncCallbackHandler):
         if not self.persist:
             return
         snap = self.snapshot()
+        latency_ms = snap.get("latencyMs")
+        queue_ms = snap.get("queueMs")
+        published_to_first_token_ms = snap.get("publishedToFirstTokenMs")
+        rag_ms = snap.get("ragMs")
+        total_ms = None
+        if latency_ms is not None:
+            total_ms = latency_ms + (queue_ms or 0) + (rag_ms or 0)
         row = {
             "request_id": self.job_id,
             "trace_id": self.job_id,
@@ -237,7 +258,10 @@ class MetricsCallback(AsyncCallbackHandler):
             "completion_tokens": snap.get("tokensOut", 0) or 0,
             "ttft_ms": snap.get("ttftMs"),
             "gen_time_ms": snap.get("genTimeMs"),
-            "total_ms": snap.get("latencyMs"),
+            "queue_ms": queue_ms,
+            "published_to_first_token_ms": published_to_first_token_ms,
+            "rag_ms": rag_ms,
+            "total_ms": total_ms,
             "tok_per_sec": snap.get("tps"),
             "response_status": 0 if self._error_code is None else 2,
             "error_message": None if self._error_code is None else self._error_code,
@@ -302,6 +326,11 @@ class MetricsCallback(AsyncCallbackHandler):
         # Record first token arrival time
         if self._first_token_at is None:
             self._first_token_at = monotonic()
+            if self._first_token_delta_ms is not None:
+                try:
+                    self._published_to_first_token_ms = await self._first_token_delta_ms()
+                except Exception as e:
+                    logger.warning("metrics first token DB timing failed: %s", e)
 
         # NOTE: provider token callbacks may deliver partial text chunks that don't map 1:1 to model tokens.
         # Accumulate raw pieces and compute true token length at end using the configured tokenizer.

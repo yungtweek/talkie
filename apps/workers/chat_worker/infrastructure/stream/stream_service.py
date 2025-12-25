@@ -61,8 +61,14 @@ EventType = Literal[
     "error",
     "ping",
     "final",
-    "rag_search_call.in_progress",
-    "rag_search_call.completed",
+    "rag_retrieve.in_progress",
+    "rag_retrieve.completed",
+    "rag_rerank.in_progress",
+    "rag_rerank.completed",
+    "rag_mmr.in_progress",
+    "rag_mmr.completed",
+    "rag_compress.in_progress",
+    "rag_compress.completed",
 ]
 
 
@@ -119,8 +125,14 @@ class StreamService:
             "error",
             "ping",
             "final",
-            "rag_search_call.in_progress",
-            "rag_search_call.completed",
+            "rag_retrieve.in_progress",
+            "rag_retrieve.completed",
+            "rag_rerank.in_progress",
+            "rag_rerank.completed",
+            "rag_mmr.in_progress",
+            "rag_mmr.completed",
+            "rag_compress.in_progress",
+            "rag_compress.completed",
         }
 
         async def publish(evt: Dict[str, Any]) -> str:

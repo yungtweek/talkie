@@ -75,7 +75,17 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
         }
 
         const correlationId: string | undefined = row.key ?? row.job_id ?? undefined;
-        await this.kafka.produce(row.topic, row.payload_json, correlationId);
+        const publishedAt =
+          row.last_attempt_at instanceof Date
+            ? row.last_attempt_at.toISOString()
+            : row.last_attempt_at
+              ? new Date(row.last_attempt_at).toISOString()
+              : new Date().toISOString();
+        const payload = {
+          ...(row.payload_json as Record<string, unknown>),
+          outboxPublishedAt: publishedAt,
+        };
+        await this.kafka.produce(row.topic, payload, correlationId);
 
         await this.outboxRepo.markPublished(row.id);
       } catch (err) {

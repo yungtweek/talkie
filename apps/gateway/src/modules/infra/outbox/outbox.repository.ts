@@ -9,6 +9,7 @@ interface OutboxRow {
   key: string | null;
   payload_json: unknown;
   job_id: string | null;
+  last_attempt_at?: Date | string | null;
 }
 
 @Injectable()
@@ -30,7 +31,13 @@ export class OutboxRepository {
 
     const sql = `
     INSERT INTO outbox (job_id, topic, key, payload_json, idempotency_key)
-    VALUES ($1, $2, $3, $4::jsonb, $5)
+    VALUES (
+      $1,
+      $2,
+      $3,
+      jsonb_set($4::jsonb, '{outboxCreatedAt}', to_jsonb(now()), true),
+      $5
+    )
     ON CONFLICT (topic, idempotency_key)
     DO NOTHING
     RETURNING id
@@ -54,13 +61,13 @@ export class OutboxRepository {
       WHERE id IN (
         SELECT id
         FROM outbox
-        WHERE status IN ('pending', 'failed')
+      WHERE status IN ('pending', 'failed')
           AND next_attempt_at <= now()
         ORDER BY next_attempt_at, id
         LIMIT $1
           FOR UPDATE SKIP LOCKED
       )
-      RETURNING id, topic, key, payload_json, job_id
+      RETURNING id, topic, key, payload_json, job_id, last_attempt_at
     `;
     const { rows } = await this.pool.query<OutboxRow>(sql, [limit]);
     return rows;

@@ -6,6 +6,8 @@ LLM Runner (Chat Worker)
 """
 # llm_runner.py
 import asyncio
+from datetime import datetime
+from time import monotonic, time
 from logging import getLogger
 from typing import Callable, Awaitable, Optional, Any
 from langchain_core.runnables import RunnableConfig
@@ -32,6 +34,8 @@ async def llm_runner(
         mode: str = "gen",
         publish: Callable[[dict], Awaitable[object]],
         metrics_repo: Optional[MetricsRepositoryPort] = None,
+        queue_ms: Optional[int] = None,
+        outbox_published_at: Optional[datetime] = None,
         cancel_event: Optional[asyncio.Event] = None,
         hard_timeout_sec: Optional[float] = None,
         on_event: Optional[Callable[[str, dict], Awaitable[None]]] = None,
@@ -71,6 +75,18 @@ async def llm_runner(
 
     # Approximate token counter for MetricsCallback (uses LangChain utility)
     token_len = lambda s: count_tokens_approximately([s])
+    first_token_delta_ms = None
+    if metrics_repo is not None and outbox_published_at is not None:
+        async def _first_token_delta_ms() -> int | None:
+            offset_ms = await metrics_repo.db_time_offset_ms()
+            if offset_ms is None:
+                return None
+            now_wall_ms = int(time() * 1000)
+            first_token_db_ms = now_wall_ms + offset_ms
+            published_ms = int(outbox_published_at.timestamp() * 1000)
+            return max(0, first_token_db_ms - published_ms)
+        first_token_delta_ms = _first_token_delta_ms
+
     # Collect per-run metrics (timings, token counts) and persist via provided hook
     metric_cb = MetricsCallback(
         job_id=job_id,
@@ -80,6 +96,8 @@ async def llm_runner(
         persist=_persist_row,
         token_len=token_len,
         allowed_tags=None,
+        queue_ms=queue_ms,
+        first_token_delta_ms=first_token_delta_ms,
     )
 
     # Invoke either the provided chain or the raw LLM with streaming callbacks attached
@@ -88,7 +106,9 @@ async def llm_runner(
         # Configure callbacks for streaming tokens and metrics
         config = RunnableConfig(callbacks=[token_stream_cb, metric_cb], tags=["final_answer"])
         if chain is not None:
+            rag_started_at = monotonic()
             result = await chain.ainvoke(chain_input or {})
+            metric_cb.set_rag_ms(int((monotonic() - rag_started_at) * 1000))
             if isinstance(result, dict) and "prompt" in result:
                 prompt_value = result["prompt"]
                 citations = result.get("citations")

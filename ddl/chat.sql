@@ -213,11 +213,11 @@ CREATE TABLE IF NOT EXISTS job_events
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-COMMENT ON TABLE job_events IS 'Append-only job-scoped events (e.g., rag_search_call.*) for observability.';
+COMMENT ON TABLE job_events IS 'Append-only job-scoped events (e.g., rag_retrieve.*) for observability.';
 COMMENT ON COLUMN job_events.job_id IS 'Job UUID (correlates with chat jobs).';
 COMMENT ON COLUMN job_events.user_id IS 'Owner user UUID.';
 COMMENT ON COLUMN job_events.session_id IS 'Optional session UUID for chat jobs.';
-COMMENT ON COLUMN job_events.event IS 'Event name, e.g., rag_search_call.in_progress.';
+COMMENT ON COLUMN job_events.event IS 'Event name, e.g., rag_retrieve.in_progress.';
 COMMENT ON COLUMN job_events.payload IS 'Event payload JSON (query, hits, tookMs, etc).';
 
 ALTER TABLE job_events

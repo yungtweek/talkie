@@ -179,7 +179,7 @@ export class ChatRepository {
                       SELECT je.payload
                       FROM job_events je
                       WHERE je.job_id = cm.job_id
-                        AND je.event = 'rag_search_call.in_progress'
+                        AND je.event = 'rag_retrieve.in_progress'
                       ORDER BY je.created_at DESC
                       LIMIT 1
                     ),
@@ -188,7 +188,7 @@ export class ChatRepository {
                       SELECT je.payload
                       FROM job_events je
                       WHERE je.job_id = cm.job_id
-                        AND je.event = 'rag_search_call.completed'
+                        AND je.event = 'rag_retrieve.completed'
                       ORDER BY je.created_at DESC
                       LIMIT 1
                     )

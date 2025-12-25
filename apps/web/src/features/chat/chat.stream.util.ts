@@ -29,18 +29,18 @@ export function openChatStream(jobId: string, handlers: StreamHandlers) {
     }
   });
 
-  es.addEventListener('rag_search_call.in_progress', (e: MessageEvent) => {
+  es.addEventListener('rag_retrieve.in_progress', (e: MessageEvent) => {
     try {
       const d = JSON.parse(e.data);
       handlers.onRagSearch?.('in_progress', {
         query: d.query,
       });
     } catch (err) {
-      console.warn('[chat][rag_search_call.in_progress] parse failed', err);
+      console.warn('[chat][rag_retrieve.in_progress] parse failed', err);
     }
   });
 
-  es.addEventListener('rag_search_call.completed', (e: MessageEvent) => {
+  es.addEventListener('rag_retrieve.completed', (e: MessageEvent) => {
     try {
       const d = JSON.parse(e.data);
       handlers.onRagSearch?.('completed', {
@@ -49,7 +49,7 @@ export function openChatStream(jobId: string, handlers: StreamHandlers) {
         tookMs: d.tookMs,
       });
     } catch (err) {
-      console.warn('[chat][rag_search_call.completed] parse failed', err);
+      console.warn('[chat][rag_retrieve.completed] parse failed', err);
     }
   });
 

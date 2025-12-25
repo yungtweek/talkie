@@ -110,6 +110,91 @@ class LlmRunnerSourcesEventTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("sources", mirrored)
 
 
+class RagStageEventTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rag_stage_events_emitted(self) -> None:
+        rag_cfg = RagConfig(max_context=1000)
+        pipeline = RagPipeline(settings=rag_cfg, embeddings=DummyEmbeddings())
+        docs = [Document(title="Doc1", page_content="alpha", chunk_id="c1")]
+
+        class DummyRerankCfg:
+            top_n = 3
+            max_candidates = 10
+            batch_size = 5
+            max_doc_chars = 250
+
+        class DummyReranker:
+            _cfg = DummyRerankCfg()
+
+            def rerank(self, _query: str, items: list[Document]) -> list[Document]:
+                return items
+
+        pipeline.reranker = DummyReranker()
+
+        class DummyRetriever:
+            def invoke(self, _q: str) -> list[Document]:
+                return docs
+
+        pipeline.build_retriever = lambda **_kwargs: DummyRetriever()  # type: ignore[assignment]
+
+        published: list[dict] = []
+        recorded: list[str] = []
+
+        async def publish(evt: dict) -> None:
+            published.append(evt)
+
+        async def record_event(event_type: str, _payload: dict) -> None:
+            recorded.append(event_type)
+
+        chain = pipeline.build()
+        await chain.ainvoke(
+            {
+                "question": "hello",
+                "rag": {},
+                "stream": {
+                    "publish": publish,
+                    "record_event": record_event,
+                    "job_id": "job-1",
+                    "user_id": "user-1",
+                    "session_id": "sess-1",
+                },
+            }
+        )
+
+        expected = {
+            "rag_retrieve.in_progress",
+            "rag_retrieve.completed",
+            "rag_rerank.in_progress",
+            "rag_rerank.completed",
+            "rag_mmr.in_progress",
+            "rag_mmr.completed",
+            "rag_compress.in_progress",
+            "rag_compress.completed",
+        }
+        emitted = {evt.get("event") for evt in published}
+        for name in expected:
+            self.assertIn(name, emitted)
+            self.assertIn(name, recorded)
+
+        rerank_done = next(evt for evt in published if evt.get("event") == "rag_rerank.completed")
+        self.assertIn("inputHits", rerank_done)
+        self.assertIn("outputHits", rerank_done)
+        self.assertEqual(rerank_done.get("reranker"), "DummyReranker")
+        self.assertEqual(rerank_done.get("rerankTopN"), 3)
+
+        mmr_done = next(evt for evt in published if evt.get("event") == "rag_mmr.completed")
+        self.assertIn("mmrK", mmr_done)
+        self.assertIn("mmrFetchK", mmr_done)
+        self.assertIn("mmrLambda", mmr_done)
+
+        compress_done = next(evt for evt in published if evt.get("event") == "rag_compress.completed")
+        self.assertIn("inputHits", compress_done)
+        self.assertIn("outputHits", compress_done)
+        self.assertIn("maxContext", compress_done)
+        self.assertIn("useLlm", compress_done)
+        self.assertIn("heuristicHits", compress_done)
+        self.assertIn("llmApplied", compress_done)
+        self.assertFalse(compress_done.get("llmApplied"))
+
 class DummyChatRepo:
     def __init__(self) -> None:
         self.finalize_calls: list[dict] = []
@@ -250,7 +335,7 @@ class RepoSinkTests(unittest.IsolatedAsyncioTestCase):
         )
 
         await sink.on_job_event(
-            "rag_search_call.completed",
+            "rag_retrieve.completed",
             {"query": "hi", "hits": 2, "tookMs": 10},
         )
 
@@ -258,7 +343,7 @@ class RepoSinkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repo.job_events[0]["job_id"], "job-3")
         self.assertEqual(repo.job_events[0]["user_id"], "user-3")
         self.assertEqual(repo.job_events[0]["session_id"], "sess-3")
-        self.assertEqual(repo.job_events[0]["event_type"], "rag_search_call.completed")
+        self.assertEqual(repo.job_events[0]["event_type"], "rag_retrieve.completed")
         self.assertEqual(repo.job_events[0]["payload"]["hits"], 2)
 
     async def test_on_event_persists_done_only(self) -> None:
