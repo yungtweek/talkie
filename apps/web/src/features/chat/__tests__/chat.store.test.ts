@@ -1,5 +1,6 @@
 import { chatStore, selectIsStreaming } from '@/features/chat/chat.store';
 import type { ChatEdge } from '@/features/chat/chat.types';
+import { safeJsonParse } from '@/lib/utils';
 
 const baseState = chatStore.getState();
 
@@ -36,7 +37,7 @@ describe('selectIsStreaming', () => {
 });
 
 describe('updateRagSearch', () => {
-  it('preserves previous fields while keeping the latest status and payload', () => {
+  it('keeps in-progress and completed snapshots for detail view', () => {
     const jobId = 'job-123';
     chatStore.setState({
       ...baseState,
@@ -46,11 +47,13 @@ describe('updateRagSearch', () => {
             role: 'assistant',
             content: '',
             jobId,
-            ragSearch: {
-              status: 'in_progress',
-              query: 'hello',
-              hits: 1,
-            },
+            ragSearchJson: JSON.stringify({
+              inProgress: {
+                query: 'hello',
+                hits: 1,
+              },
+              completed: null,
+            }),
           },
         },
       ],
@@ -58,12 +61,19 @@ describe('updateRagSearch', () => {
 
     chatStore.getState().updateRagSearch(jobId, 'completed', { hits: 2, tookMs: 15 });
 
-    const updated = chatStore.getState().edges[0]?.node.ragSearch;
+    const updated = safeJsonParse<{
+      inProgress?: { query?: string; hits?: number } | null;
+      completed?: { hits?: number; tookMs?: number } | null;
+    }>(chatStore.getState().edges[0]?.node.ragSearchJson, null);
     expect(updated).toEqual({
-      status: 'completed',
-      query: 'hello',
-      hits: 2,
-      tookMs: 15,
+      inProgress: {
+        query: 'hello',
+        hits: 1,
+      },
+      completed: {
+        hits: 2,
+        tookMs: 15,
+      },
     });
   });
 });
