@@ -486,6 +486,10 @@ class RagPipeline:
         docs = list(state.docs or [])
         stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
         state.stream_ctx = stream_ctx
+        if not docs:
+            logger.debug("[RAG] rerank skipped: no docs")
+            state.reranked_docs = []
+            return state
         rerank_started_at = monotonic()
         if stream_ctx.get("has_stream"):
             await emit_stage_event(
@@ -531,6 +535,10 @@ class RagPipeline:
         stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
         state.stream_ctx = stream_ctx
         mmr_docs = reranked_docs
+        if not reranked_docs:
+            logger.debug("[RAG] mmr skipped: no docs")
+            state.mmr_docs = []
+            return state
         if reranked_docs:
             try:
                 mmr_started_at = monotonic()
@@ -622,6 +630,12 @@ class RagPipeline:
         mmr_docs = list(state.mmr_docs or state.reranked_docs or state.docs or [])
         stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
         state.stream_ctx = stream_ctx
+        if not mmr_docs:
+            logger.debug("[RAG] compress skipped: no docs")
+            state.compressed_docs = []
+            state.heuristic_hits = 0
+            state.llm_applied = False
+            return state
         max_context = get_override(rag_cfg, "maxContext", "max_context", default=UNSET)
         if max_context is UNSET:
             max_context = self.max_context

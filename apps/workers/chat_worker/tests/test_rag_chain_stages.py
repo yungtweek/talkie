@@ -143,6 +143,53 @@ class RagChainStageTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(out.reranked_docs, [doc2, doc1])
 
+    async def test_stages_skip_when_no_docs(self) -> None:
+        rag_cfg = RagConfig(max_context=1000)
+        pipeline = RagPipeline(settings=rag_cfg, embeddings=DummyEmbeddings())
+        called = {"rerank": False, "mmr": False, "compress": False}
+
+        class DummyReranker:
+            def rerank(self, _query: str, items: list[Document]) -> list[Document]:
+                called["rerank"] = True
+                return items
+
+        pipeline.reranker = DummyReranker()
+
+        async def fake_compress(docs: List[Document], _query: str, *, max_context=None, use_llm=None):
+            called["compress"] = True
+            return docs, len(docs), False
+
+        pipeline.compress_docs = fake_compress  # type: ignore[assignment]
+
+        from chat_worker.application import rag_chain as rag_chain_module
+
+        class DummyMMRPostprocessor:
+            def __init__(self, cfg) -> None:
+                called["mmr"] = True
+
+            def apply(self, *, query: str, docs: list[Document]):
+                return docs
+
+        original = rag_chain_module.MMRPostprocessor
+        rag_chain_module.MMRPostprocessor = DummyMMRPostprocessor  # type: ignore[assignment]
+        try:
+            rerank_out = await pipeline.stage_rerank({"question": "q", "docs": []})
+            self.assertEqual(rerank_out.reranked_docs, [])
+
+            mmr_out = await pipeline.stage_mmr(rerank_out)
+            self.assertEqual(mmr_out.mmr_docs, [])
+
+            compress_out = await pipeline.stage_compress(mmr_out)
+            self.assertEqual(compress_out.compressed_docs, [])
+            self.assertEqual(compress_out.heuristic_hits, 0)
+            self.assertFalse(compress_out.llm_applied)
+        finally:
+            rag_chain_module.MMRPostprocessor = original
+
+        self.assertFalse(called["rerank"])
+        self.assertFalse(called["mmr"])
+        self.assertFalse(called["compress"])
+
     async def test_stage_compress_returns_metadata(self) -> None:
         rag_cfg = RagConfig(max_context=1000)
         pipeline = RagPipeline(settings=rag_cfg, embeddings=DummyEmbeddings())
