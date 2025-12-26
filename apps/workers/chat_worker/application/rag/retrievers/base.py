@@ -20,6 +20,7 @@ class RagContext:
     - text_key: property key for fulltext/BM25 queries (default: 'text')
     - alpha: hybrid mixing parameter when supported (0.0~1.0)
     - default_top_k: fallback value when caller doesn't provide top_k
+    - mmq: optional multi-query count for retrievers that support it
     - filters: optional backend filter object (mapping), applied by retrievers
     - settings: optional settings object (free-form)
     """
@@ -29,6 +30,7 @@ class RagContext:
     text_key: str = "text"
     alpha: float = 0.5
     default_top_k: int = 5
+    mmq: int | None = None
     filters: Mapping[str, Any] | None = None
     settings: Any | None = None
 
@@ -107,6 +109,7 @@ class BaseRetriever(ABC):
         query: str,
         *,
         top_k: int | None = None,
+        mmq: int | None = None,
         filters: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> RetrieveResult:

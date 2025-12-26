@@ -19,6 +19,7 @@ from chat_worker.domain.ports.metrics_repo import MetricsRepositoryPort
 
 from chat_worker.infrastructure.langchain.token_stream_callback import TokenStreamCallback
 from chat_worker.infrastructure.langchain.metrics_callback import MetricsCallback
+from chat_worker.application.rag_chain import RagState
 
 log = getLogger('run_llm_stream')
 
@@ -109,7 +110,22 @@ async def llm_runner(
             rag_started_at = monotonic()
             result = await chain.ainvoke(chain_input or {})
             metric_cb.set_rag_ms(int((monotonic() - rag_started_at) * 1000))
-            if isinstance(result, dict) and "prompt" in result:
+            if isinstance(result, RagState):
+                prompt_value = result.prompt
+                if prompt_value is None:
+                    raise ValueError("RAG chain returned RagState without prompt")
+                citations = result.citations
+                if citations is not None:
+                    sources_payload = {"citations": citations}
+                    await _publish_with_sink(
+                        {
+                            "event": "sources",
+                            "jobId": job_id,
+                            "userId": user_id,
+                            **sources_payload,
+                        }
+                    )
+            elif isinstance(result, dict) and "prompt" in result:
                 prompt_value = result["prompt"]
                 citations = result.get("citations")
                 if citations is not None:

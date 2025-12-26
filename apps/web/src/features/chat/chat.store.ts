@@ -1,16 +1,19 @@
 import { create } from 'zustand';
-import { ChatEdge, ChatNode } from '@/features/chat/chat.types';
+import {
+  ChatEdge,
+  ChatNode,
+  RagEventMeta,
+  RagEventPayload,
+  RagSearchSnapshot,
+  RagStageSnapshot,
+  RagWrapperSnapshot,
+} from '@/features/chat/chat.types';
 import { useShallow } from 'zustand/react/shallow';
 import { apolloClient } from '@/lib/apollo/apollo.client';
 import { ChatSessionDocument } from '@/gql/graphql';
 import type { ChatSessionQuery, ChatSessionQueryVariables } from '@/gql/graphql';
 import { z } from 'zod';
 import { safeJsonParse } from '@/lib/utils';
-
-type RagSearchSnapshot = {
-  inProgress?: { hits?: number; tookMs?: number; query?: string } | null;
-  completed?: { hits?: number; tookMs?: number; query?: string } | null;
-};
 
 export const selectIsStreaming = (edges: ChatEdge[]) =>
   edges.some(m => m?.node?.role === 'assistant' && m?.node?.streamDone === false);
@@ -26,8 +29,8 @@ interface ChatState {
   updateSources: (sources: unknown, jobId: string) => void;
   updateRagSearch: (
     jobId: string,
-    status: 'in_progress' | 'completed',
-    payload?: { hits?: number; tookMs?: number; query?: string },
+    meta: RagEventMeta,
+    payload?: RagEventPayload,
   ) => void;
   markStreamDone: (jobId: string) => void;
   reset: () => void;
@@ -168,31 +171,79 @@ export const chatStore = create<ChatState>((set, get) => ({
       return { edges: next };
     }),
 
-  updateRagSearch: (jobId, status, payload) =>
+  updateRagSearch: (jobId, meta, payload) =>
     set(st => {
       const next = updateEdgeByJobId(st.edges, jobId, node => ({
         ...node,
         ragSearchJson: (() => {
-          const parsed = safeJsonParse<RagSearchSnapshot>(node.ragSearchJson, {
-            inProgress: null,
-            completed: null,
-          });
-          let inProgress = parsed.inProgress ?? null;
-          let completed = parsed.completed ?? null;
+          const parsed = safeJsonParse<RagSearchSnapshot | Record<string, unknown>>(
+            node.ragSearchJson,
+            {},
+          );
+          const normalized: RagSearchSnapshot = {
+            wrapper: {},
+            stages: {},
+          };
+          if (parsed && ('wrapper' in parsed || 'stages' in parsed)) {
+            if (parsed.wrapper) {
+              normalized.wrapper = { ...parsed.wrapper };
+            }
+            if (parsed.stages) {
+              normalized.stages = { ...parsed.stages };
+            }
+          }
 
           if (!node.ragSearchJson && node.ragSearch) {
-            const { status: priorStatus, ...rest } = node.ragSearch;
-            if (priorStatus === 'in_progress' && !inProgress) inProgress = rest;
-            if (priorStatus === 'completed' && !completed) completed = rest;
+            const { meta: priorMeta, payload: priorPayload } = node.ragSearch;
+            const target =
+              priorMeta.scope === 'wrapper'
+                ? normalized.wrapper?.searchCall ?? { inProgress: null, completed: null }
+                : (normalized.stages?.[priorMeta.key] ?? {
+                    inProgress: null,
+                    completed: null,
+                  });
+            if (priorMeta.status === 'in_progress' && !target.inProgress) {
+              target.inProgress = priorPayload ?? null;
+            }
+            if (priorMeta.status === 'completed' && !target.completed) {
+              target.completed = priorPayload ?? null;
+            }
+            if (priorMeta.scope === 'wrapper') {
+              normalized.wrapper = { ...(normalized.wrapper ?? {}), searchCall: target };
+            } else {
+              normalized.stages = { ...(normalized.stages ?? {}), [priorMeta.key]: target };
+            }
           }
 
-          if (status === 'in_progress') {
-            inProgress = { ...(inProgress ?? {}), ...(payload ?? {}) };
+          const stageSnapshot: RagStageSnapshot | RagWrapperSnapshot =
+            meta.scope === 'wrapper'
+              ? normalized.wrapper?.searchCall ?? { inProgress: null, completed: null }
+              : (normalized.stages?.[meta.key] ?? {
+                  inProgress: null,
+                  completed: null,
+                });
+
+          if (meta.status === 'in_progress') {
+            stageSnapshot.inProgress = {
+              ...(stageSnapshot.inProgress ?? {}),
+              ...(payload ?? {}),
+            };
           } else {
-            completed = { ...(completed ?? {}), ...(payload ?? {}) };
+            stageSnapshot.completed = {
+              ...(stageSnapshot.completed ?? {}),
+              ...(payload ?? {}),
+            };
+          }
+          if (meta.scope === 'wrapper') {
+            normalized.wrapper = { ...(normalized.wrapper ?? {}), searchCall: stageSnapshot };
+          } else {
+            normalized.stages = {
+              ...(normalized.stages ?? {}),
+              [meta.key]: stageSnapshot,
+            };
           }
 
-          return JSON.stringify({ inProgress, completed });
+          return JSON.stringify(normalized);
         })(),
         ragSearch: undefined,
       }));

@@ -1,10 +1,10 @@
+import type { RagEventMeta, RagEventPayload } from '@talkie/events-contracts';
+import { RagEventTypes, getRagEventMeta } from '@talkie/events-contracts';
+
 type StreamHandlers = {
   onText?: (chunk: string) => void;
   onSources?: (sources: unknown) => void;
-  onRagSearch?: (
-    status: 'in_progress' | 'completed',
-    payload: { hits?: number; tookMs?: number; query?: string },
-  ) => void;
+  onRagSearch?: (meta: RagEventMeta, payload: RagEventPayload) => void;
   onDone?: () => void;
   onError?: (err: unknown) => void;
 };
@@ -45,29 +45,18 @@ export function openChatStream(jobId: string, handlers: StreamHandlers) {
     }
   });
 
-  es.addEventListener('rag_retrieve.in_progress', (e: MessageEvent) => {
-    try {
-      const d = JSON.parse(e.data);
-      handlers.onRagSearch?.('in_progress', {
-        query: d.query,
-      });
-    } catch (err) {
-      console.warn('[chat][rag_retrieve.in_progress] parse failed', err);
-    }
-  });
-
-  es.addEventListener('rag_retrieve.completed', (e: MessageEvent) => {
-    try {
-      const d = JSON.parse(e.data);
-      handlers.onRagSearch?.('completed', {
-        query: d.query,
-        hits: d.hits,
-        tookMs: d.tookMs,
-      });
-    } catch (err) {
-      console.warn('[chat][rag_retrieve.completed] parse failed', err);
-    }
-  });
+  for (const eventName of RagEventTypes) {
+    const meta = getRagEventMeta(eventName);
+    if (!meta) continue;
+    es.addEventListener(eventName, (e: MessageEvent) => {
+      try {
+        const d = JSON.parse(e.data);
+        handlers.onRagSearch?.(meta, d);
+      } catch (err) {
+        console.warn(`[chat][${eventName}] parse failed`, err);
+      }
+    });
+  }
 
   es.addEventListener('done', () => {
     if (flushHandle !== null) {

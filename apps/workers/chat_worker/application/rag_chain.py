@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field, replace
 from logging import getLogger
 import math
 from time import monotonic
@@ -11,6 +12,17 @@ from langchain_core.language_models import BaseLanguageModel
 
 from chat_worker.application.rag.document import Document
 from chat_worker.application.rag.helpers import normalize_search_type
+from chat_worker.application.rag.helpers.chain import (
+    UNSET,
+    emit_search_event,
+    emit_stage_event,
+    expand_queries,
+    get_override,
+    merge_docs,
+    rerank_cfg_value,
+    stream_context,
+    total_chars,
+)
 from chat_worker.application.rag.postprocessors.compress_docs import (
     compress_docs as compress_docs_postprocessor,
 )
@@ -19,11 +31,103 @@ from chat_worker.application.rag.retrievers.base import RagContext, RetrieveResu
 from chat_worker.application.rag.retrievers.weaviate_near_text import WeaviateNearTextRetriever
 from chat_worker.settings import Settings, RagConfig, WeaviateSearchType
 from chat_worker.application.rag.retrievers.weaviate_hybrid import WeaviateHybridRetriever
-from chat_worker.application.dto.events import RagSearchCallEvent, RagStageCallEvent
-from chat_worker.infrastructure.stream.stream_service import safe_publish
 
 
 logger = getLogger("RagPipeline")
+
+
+@dataclass
+class RagState:
+    question: str
+    rag: Dict[str, Any] = field(default_factory=dict)
+    stream: Dict[str, Any] = field(default_factory=dict)
+    stream_ctx: Dict[str, Any] = field(default_factory=dict)
+    docs: List[Document] = field(default_factory=list)
+    reranked_docs: List[Document] = field(default_factory=list)
+    mmr_docs: List[Document] = field(default_factory=list)
+    compressed_docs: List[Document] = field(default_factory=list)
+    heuristic_hits: Optional[int] = None
+    llm_applied: Optional[bool] = None
+    context: Optional[str] = None
+    citations: List[dict[str, Any]] = field(default_factory=list)
+    prompt: Any = None
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_inputs(cls, inputs: "RagState | Dict[str, Any]") -> "RagState":
+        if isinstance(inputs, RagState):
+            return inputs
+        if not isinstance(inputs, dict):
+            raise TypeError("RagState inputs must be a dict or RagState")
+        question = inputs.get("question")
+        if question is None:
+            raise KeyError("question")
+        known_keys = {
+            "question",
+            "rag",
+            "stream",
+            "stream_ctx",
+            "docs",
+            "reranked_docs",
+            "mmr_docs",
+            "compressed_docs",
+            "heuristic_hits",
+            "llm_applied",
+            "context",
+            "citations",
+            "prompt",
+            "extra",
+        }
+        extra = dict(inputs.get("extra") or {})
+        for key, value in inputs.items():
+            if key in known_keys:
+                continue
+            extra[key] = value
+        return RagState(
+            question=question,
+            rag=inputs.get("rag") or {},
+            stream=inputs.get("stream") or {},
+            stream_ctx=inputs.get("stream_ctx") or {},
+            docs=list(inputs.get("docs") or []),
+            reranked_docs=list(inputs.get("reranked_docs") or []),
+            mmr_docs=list(inputs.get("mmr_docs") or []),
+            compressed_docs=list(inputs.get("compressed_docs") or []),
+            heuristic_hits=inputs.get("heuristic_hits"),
+            llm_applied=inputs.get("llm_applied"),
+            context=inputs.get("context"),
+            citations=list(inputs.get("citations") or []),
+            prompt=inputs.get("prompt"),
+            extra=extra,
+        )
+
+    def copy_with(self, **kwargs: Any) -> "RagState":
+        if "extra" in kwargs and isinstance(kwargs["extra"], dict):
+            kwargs["extra"] = {**self.extra, **kwargs["extra"]}
+        return replace(self, **kwargs)
+
+    def to_prompt_result(self) -> Dict[str, Any]:
+        return {"prompt": self.prompt, "citations": self.citations}
+
+    def to_dict(self, *, include_none: bool = False) -> Dict[str, Any]:
+        data = {
+            "question": self.question,
+            "rag": self.rag,
+            "stream": self.stream,
+            "stream_ctx": self.stream_ctx,
+            "docs": self.docs,
+            "reranked_docs": self.reranked_docs,
+            "mmr_docs": self.mmr_docs,
+            "compressed_docs": self.compressed_docs,
+            "heuristic_hits": self.heuristic_hits,
+            "llm_applied": self.llm_applied,
+            "context": self.context,
+            "citations": self.citations,
+            "prompt": self.prompt,
+            "extra": self.extra,
+        }
+        if include_none:
+            return data
+        return {k: v for k, v in data.items() if v is not None}
 
 
 class RagPipeline:
@@ -66,6 +170,10 @@ class RagPipeline:
             default_top_k: int | None = None,
             default_mmq: int | None = None,
             max_context: int | None = None,
+            mmr_k: int | None = None,
+            mmr_fetch_k: int | None = None,
+            mmr_lambda_mult: float | None = None,
+            mmr_similarity_threshold: float | None = None,
             search_type: WeaviateSearchType = WeaviateSearchType.HYBRID,
             reranker: Any | None = None,
             llm_compressor: Any | None = None,
@@ -79,6 +187,16 @@ class RagPipeline:
         self.default_top_k = int(default_top_k or self.settings.top_k)
         self.default_mmq = int(default_mmq or self.settings.mmq)
         self.max_context = int(max_context or self.settings.max_context)
+        self.mmr_k = mmr_k if mmr_k is not None else self.settings.mmr_k
+        self.mmr_fetch_k = mmr_fetch_k if mmr_fetch_k is not None else self.settings.mmr_fetch_k
+        self.mmr_lambda_mult = (
+            mmr_lambda_mult if mmr_lambda_mult is not None else self.settings.mmr_lambda_mult
+        )
+        self.mmr_similarity_threshold = (
+            mmr_similarity_threshold
+            if mmr_similarity_threshold is not None
+            else self.settings.mmr_similarity_threshold
+        )
         self.search_type = search_type or self.settings.search_type
         self.alpha = self.settings.alpha
         self.alpha_multi_strong_max = self.settings.alpha_multi_strong_max
@@ -100,15 +218,24 @@ class RagPipeline:
             ]
         )
 
-    async def compress_docs(self, docs: Sequence[Document], query: str) -> tuple[list[Document], int, bool]:
+    async def compress_docs(
+        self,
+        docs: Sequence[Document],
+        query: str,
+        *,
+        max_context: int | None = None,
+        use_llm: bool | None = None,
+    ) -> tuple[list[Document], int, bool]:
         """Compress retrieved documents while preserving scores and ranks."""
+        if use_llm is None:
+            use_llm = self.llm_compressor is not None
         return await compress_docs_postprocessor(
             docs,
             query,
             embeddings=self.embeddings,
-            max_context=self.max_context,
+            max_context=self.max_context if max_context is None else max_context,
             llm_compressor=self.llm_compressor,
-            use_llm=self.llm_compressor is not None,
+            use_llm=use_llm,
         )
 
     async def rerank_docs(self, docs: Sequence[Document], query: str) -> list[Document]:
@@ -218,6 +345,9 @@ class RagPipeline:
 
         return "\n---\n".join(buf), citations
 
+    def _ensure_state(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        return RagState.from_inputs(inputs)
+
     # ---------------- Retriever/Chain Builder ----------------
     def build_retriever(self, *, top_k: int | None = None, mmq: int | None = None,
                         filters: Dict[str, Any] | None = None,
@@ -248,6 +378,7 @@ class RagPipeline:
             text_key=(text_key or self.text_key),
             alpha=float(alpha) if alpha is not None else float(self.alpha),
             default_top_k=int(top_k or self.default_top_k),
+            mmq=int(mmq) if mmq is not None else None,
             filters=filters,
             settings=self.settings,
         )
@@ -256,150 +387,50 @@ class RagPipeline:
         else:
             return WeaviateHybridRetriever(ctx)
 
-    def build(self):
-        """
-        Create the final RAG chain (prompt).
-        Injects context via a retriever step.
-        """
-        async def _with_context(inputs: Dict[str, Any]):
-            """
-            Retrieve and compress context for the input question.
-
-            Returns a dict of prompt variables (`question`, `context`) for downstream
-            LLM invocation performed outside this pipeline.
-            """
-            rag_cfg = inputs.get("rag", {}) or {}
-            stream = inputs.get("stream") or {}
-            publish = stream.get("publish")
-            record_event = stream.get("record_event")
-            job_id = stream.get("job_id")
-            user_id = stream.get("user_id")
-            session_id = stream.get("session_id")
-            has_stream = bool(publish and job_id and user_id)
-            retriever = self.build_retriever(
-                top_k=rag_cfg.get("topK"),
-                mmq=rag_cfg.get("mmq"),
-                filters=rag_cfg.get("filters"),
-                search_type=rag_cfg.get("searchType"),
-                alpha=rag_cfg.get("alpha"),
+    async def stage_search_call_start(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        logger.debug("[RAG] stage_search_call_start")
+        state = self._ensure_state(inputs)
+        stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
+        state.stream_ctx = stream_ctx
+        state.extra.setdefault("search_call_started_at", monotonic())
+        if stream_ctx.get("has_stream"):
+            await emit_search_event(
+                stream_ctx,
+                "rag_search_call.in_progress",
+                query=state.question,
             )
-            q = inputs["question"]
+        return state
 
-            def _total_chars(items: Sequence[Document]) -> int:
-                total = 0
-                for d in items:
-                    total += len(getattr(d, "page_content", "") or "")
-                return total
-
-            def _rerank_cfg_value(name: str) -> Optional[int]:
-                if self.reranker is None:
-                    return None
-                cfg = getattr(self.reranker, "_cfg", None) or getattr(self.reranker, "cfg", None)
-                return getattr(cfg, name, None) if cfg is not None else None
-
-            async def _emit_stage_event(
-                event: str,
-                *,
-                query: Optional[str] = None,
-                hits: Optional[int] = None,
-                took_ms: Optional[int] = None,
-                input_hits: Optional[int] = None,
-                output_hits: Optional[int] = None,
-                input_chars: Optional[int] = None,
-                output_chars: Optional[int] = None,
-                reranker: Optional[str] = None,
-                rerank_top_n: Optional[int] = None,
-                rerank_max_candidates: Optional[int] = None,
-                rerank_batch_size: Optional[int] = None,
-                rerank_max_doc_chars: Optional[int] = None,
-                mmr_k: Optional[int] = None,
-                mmr_fetch_k: Optional[int] = None,
-                mmr_lambda: Optional[float] = None,
-                mmr_similarity_threshold: Optional[float] = None,
-                max_context: Optional[int] = None,
-                use_llm: Optional[bool] = None,
-                heuristic_hits: Optional[int] = None,
-                llm_applied: Optional[bool] = None,
-            ) -> None:
-                if not has_stream:
-                    return
-                stage_event = RagStageCallEvent(
-                    event=event,
-                    job_id=job_id,
-                    user_id=user_id,
-                    session_id=session_id,
-                    query=query,
-                    hits=hits,
-                    took_ms=took_ms,
-                    input_hits=input_hits,
-                    output_hits=output_hits,
-                    input_chars=input_chars,
-                    output_chars=output_chars,
-                    reranker=reranker,
-                    rerank_top_n=rerank_top_n,
-                    rerank_max_candidates=rerank_max_candidates,
-                    rerank_batch_size=rerank_batch_size,
-                    rerank_max_doc_chars=rerank_max_doc_chars,
-                    mmr_k=mmr_k,
-                    mmr_fetch_k=mmr_fetch_k,
-                    mmr_lambda=mmr_lambda,
-                    mmr_similarity_threshold=mmr_similarity_threshold,
-                    max_context=max_context,
-                    use_llm=use_llm,
-                    heuristic_hits=heuristic_hits,
-                    llm_applied=llm_applied,
-                )
-                await safe_publish(
-                    publish,
-                    stage_event.model_dump(by_alias=True, exclude_none=True),
-                )
-                if record_event:
-                    try:
-                        payload = stage_event.model_dump(by_alias=True, exclude_none=True)
-                        payload = {
-                            k: v
-                            for k, v in payload.items()
-                            if k not in ("event", "jobId", "userId", "sessionId")
-                        }
-                        await record_event(stage_event.event, payload)
-                    except Exception as exc:
-                        logger.warning("[RAG] job event persist failed: %s", exc)
-
-            started_at = None
-            if has_stream:
-                started_at = monotonic()
-                in_progress_event = RagSearchCallEvent(
-                    event="rag_retrieve.in_progress",
-                    job_id=job_id,
-                    user_id=user_id,
-                    session_id=session_id,
-                    query=q,
-                )
-                await safe_publish(
-                    publish,
-                    in_progress_event.model_dump(by_alias=True, exclude_none=True),
-                )
-                if record_event:
-                    try:
-                        payload = in_progress_event.model_dump(by_alias=True, exclude_none=True)
-                        payload = {
-                            k: v
-                            for k, v in payload.items()
-                            if k not in ("event", "jobId", "userId", "sessionId")
-                        }
-                        await record_event(in_progress_event.event, payload)
-                    except Exception as exc:
-                        logger.warning("[RAG] job event persist failed: %s", exc)
-            # Build a fresh retriever for this request and run the initial search.
-            docs_seq: Sequence[Document]
+    async def stage_retrieve(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        logger.debug("[RAG] stage_retrieve")
+        state = self._ensure_state(inputs)
+        rag_cfg = state.rag or {}
+        stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
+        state.stream_ctx = stream_ctx
+        q = state.question
+        rag_cfg = state.rag or {}
+        mmq = int(rag_cfg.get("mmq") or self.default_mmq or 1)
+        mmq = max(1, mmq)
+        retriever = self.build_retriever(
+            top_k=rag_cfg.get("topK"),
+            mmq=mmq,
+            filters=rag_cfg.get("filters"),
+            search_type=rag_cfg.get("searchType"),
+            alpha=rag_cfg.get("alpha"),
+        )
+        started_at = None
+        if stream_ctx.get("has_stream"):
+            started_at = monotonic()
+            await emit_search_event(
+                stream_ctx,
+                "rag_retrieve.in_progress",
+                query=q,
+            )
+        # Build a fresh retriever for this request and run the initial search.
+        def _run_query(query: str) -> Sequence[Document]:
             try:
-                try:
-                    logger.debug(
-                        f"[RAG] cfg topK={rag_cfg.get('topK')} mmq={rag_cfg.get('mmq')} filters={rag_cfg.get('filters')}")
-                except Exception:
-                    pass
-                result = retriever.invoke(q)
-                docs_seq = self._extract_docs(result)
+                result = retriever.invoke(query, mmq=1)
+                return self._extract_docs(result)
             except KeyError as e:
                 # Handle missing text_key in collection (e.g., 'content' vs 'text'/'page_content')
                 candidates = [self.text_key, "text", "page_content", "body", "chunk"]
@@ -410,179 +441,333 @@ class RagPipeline:
                     try:
                         retriever2 = self.build_retriever(
                             top_k=rag_cfg.get("topK"),
-                            mmq=rag_cfg.get("mmq"),
+                            mmq=mmq,
                             filters=rag_cfg.get("filters"),
                             text_key=tk,
                         )
-                        fallback_result = retriever2.invoke(q)
+                        fallback_result = retriever2.invoke(query, mmq=1)
                         docs_seq = self._extract_docs(fallback_result)
                         # Success: remember the working text_key for subsequent calls
                         self.text_key = tk
-                        break
+                        return docs_seq
                     except KeyError as ee:
                         last_err = ee
                         continue
-                else:
-                    raise last_err
-            docs = list(docs_seq)
-            if has_stream and started_at is not None:
-                took_ms = int((monotonic() - started_at) * 1000)
-                completed_event = RagSearchCallEvent(
-                    event="rag_retrieve.completed",
-                    job_id=job_id,
-                    user_id=user_id,
-                    session_id=session_id,
-                    query=q,
-                    hits=len(docs),
-                    took_ms=took_ms,
-                )
-                await safe_publish(
-                    publish,
-                    completed_event.model_dump(by_alias=True, exclude_none=True),
-                )
-                if record_event:
-                    try:
-                        payload = completed_event.model_dump(by_alias=True, exclude_none=True)
-                        payload = {
-                            k: v
-                            for k, v in payload.items()
-                            if k not in ("event", "jobId", "userId", "sessionId")
-                        }
-                        await record_event(completed_event.event, payload)
-                    except Exception as exc:
-                        logger.warning("[RAG] job event persist failed: %s", exc)
-            rerank_started_at = monotonic()
-            if has_stream:
-                await _emit_stage_event(
-                    "rag_rerank.in_progress",
-                    query=q,
-                    hits=len(docs),
-                    input_hits=len(docs),
-                    input_chars=_total_chars(docs),
-                    reranker=type(self.reranker).__name__ if self.reranker is not None else None,
-                    rerank_top_n=_rerank_cfg_value("top_n"),
-                    rerank_max_candidates=_rerank_cfg_value("max_candidates"),
-                    rerank_batch_size=_rerank_cfg_value("batch_size"),
-                    rerank_max_doc_chars=_rerank_cfg_value("max_doc_chars"),
-                )
-            reranked_docs = await self.rerank_docs(docs, q)
-            if has_stream:
-                await _emit_stage_event(
-                    "rag_rerank.completed",
-                    query=q,
-                    hits=len(reranked_docs),
-                    input_hits=len(docs),
-                    output_hits=len(reranked_docs),
-                    input_chars=_total_chars(docs),
-                    output_chars=_total_chars(reranked_docs),
-                    reranker=type(self.reranker).__name__ if self.reranker is not None else None,
-                    rerank_top_n=_rerank_cfg_value("top_n"),
-                    rerank_max_candidates=_rerank_cfg_value("max_candidates"),
-                    rerank_batch_size=_rerank_cfg_value("batch_size"),
-                    rerank_max_doc_chars=_rerank_cfg_value("max_doc_chars"),
-                    took_ms=int((monotonic() - rerank_started_at) * 1000),
-                )
-            logger.debug("[RAG] reranked_docs: %s", len(reranked_docs))
-            mmr_docs = reranked_docs
+                raise last_err
+
+        try:
+            logger.debug(
+                "[RAG] cfg topK=%s mmq=%s filters=%s",
+                rag_cfg.get("topK"),
+                mmq,
+                rag_cfg.get("filters"),
+            )
+        except Exception:
+            pass
+
+        queries = expand_queries(q, mmq)
+        try:
+            if mmq > 1:
+                logger.info("[RAG] mmq enabled: mmq=%s queries=%s", mmq, len(queries))
+                logger.debug("[RAG] mmq variants=%s", queries)
+            else:
+                logger.debug("[RAG] mmq disabled")
+        except Exception:
+            pass
+        docs_by_query = [_run_query(qv) for qv in queries]
+        max_hits = None
+        try:
+            top_k_value = rag_cfg.get("topK") if rag_cfg.get("topK") is not None else self.default_top_k
+            max_hits = int(top_k_value) * len(queries)
+        except Exception:
+            max_hits = None
+        docs = merge_docs(docs_by_query, limit=max_hits)
+        if stream_ctx.get("has_stream") and started_at is not None:
+            took_ms = int((monotonic() - started_at) * 1000)
+            await emit_search_event(
+                stream_ctx,
+                "rag_retrieve.completed",
+                query=q,
+                hits=len(docs),
+                took_ms=took_ms,
+            )
+        state.rag = rag_cfg
+        state.docs = docs
+        return state
+
+    async def stage_rerank(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        state = self._ensure_state(inputs)
+        q = state.question
+        docs = list(state.docs or [])
+        stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
+        state.stream_ctx = stream_ctx
+        if not docs:
+            logger.debug("[RAG] rerank skipped: no docs")
+            state.reranked_docs = []
+            return state
+        rerank_started_at = monotonic()
+        if stream_ctx.get("has_stream"):
+            await emit_stage_event(
+                stream_ctx,
+                "rag_rerank.in_progress",
+                query=q,
+                hits=len(docs),
+                input_hits=len(docs),
+                input_chars=total_chars(docs),
+                reranker=type(self.reranker).__name__ if self.reranker is not None else None,
+                rerank_top_n=rerank_cfg_value(self.reranker, "top_n"),
+                rerank_max_candidates=rerank_cfg_value(self.reranker, "max_candidates"),
+                rerank_batch_size=rerank_cfg_value(self.reranker, "batch_size"),
+                rerank_max_doc_chars=rerank_cfg_value(self.reranker, "max_doc_chars"),
+            )
+        reranked_docs = await self.rerank_docs(docs, q)
+        if stream_ctx.get("has_stream"):
+            await emit_stage_event(
+                stream_ctx,
+                "rag_rerank.completed",
+                query=q,
+                hits=len(reranked_docs),
+                input_hits=len(docs),
+                output_hits=len(reranked_docs),
+                input_chars=total_chars(docs),
+                output_chars=total_chars(reranked_docs),
+                reranker=type(self.reranker).__name__ if self.reranker is not None else None,
+                rerank_top_n=rerank_cfg_value(self.reranker, "top_n"),
+                rerank_max_candidates=rerank_cfg_value(self.reranker, "max_candidates"),
+                rerank_batch_size=rerank_cfg_value(self.reranker, "batch_size"),
+                rerank_max_doc_chars=rerank_cfg_value(self.reranker, "max_doc_chars"),
+                took_ms=int((monotonic() - rerank_started_at) * 1000),
+            )
+        logger.debug("[RAG] reranked_docs: %s", len(reranked_docs))
+        state.reranked_docs = reranked_docs
+        return state
+
+    async def stage_mmr(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        state = self._ensure_state(inputs)
+        q = state.question
+        rag_cfg = state.rag or {}
+        reranked_docs = list(state.reranked_docs or state.docs or [])
+        stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
+        state.stream_ctx = stream_ctx
+        mmr_docs = reranked_docs
+        if not reranked_docs:
+            logger.debug("[RAG] mmr skipped: no docs")
+            state.mmr_docs = []
+            return state
+        if reranked_docs:
             try:
-                if reranked_docs:
-                    mmr_started_at = monotonic()
-                    if has_stream:
-                        await _emit_stage_event(
-                            "rag_mmr.in_progress",
-                            query=q,
-                            hits=len(reranked_docs),
-                            input_hits=len(reranked_docs),
-                            input_chars=_total_chars(reranked_docs),
-                        )
-                    mmr_cfg = MMRConfig(k=len(reranked_docs), fetch_k=len(reranked_docs))
-                    mmr_docs = MMRPostprocessor(mmr_cfg).apply(query=q, docs=reranked_docs)
-                    if has_stream:
-                        await _emit_stage_event(
-                            "rag_mmr.completed",
-                            query=q,
-                            hits=len(mmr_docs),
-                            input_hits=len(reranked_docs),
-                            output_hits=len(mmr_docs),
-                            input_chars=_total_chars(reranked_docs),
-                            output_chars=_total_chars(mmr_docs),
-                            mmr_k=mmr_cfg.k,
-                            mmr_fetch_k=mmr_cfg.fetch_k,
-                            mmr_lambda=mmr_cfg.lambda_mult,
-                            mmr_similarity_threshold=mmr_cfg.similarity_threshold,
-                            took_ms=int((monotonic() - mmr_started_at) * 1000),
-                        )
+                mmr_started_at = monotonic()
+                if stream_ctx.get("has_stream"):
+                    await emit_stage_event(
+                        stream_ctx,
+                        "rag_mmr.in_progress",
+                        query=q,
+                        hits=len(reranked_docs),
+                        input_hits=len(reranked_docs),
+                        input_chars=total_chars(reranked_docs),
+                    )
+                mmr_k_raw = get_override(rag_cfg, "mmrK", "mmr_k", default=UNSET)
+                if mmr_k_raw is UNSET:
+                    mmr_k_raw = self.mmr_k
+                if mmr_k_raw is None:
+                    mmr_k = len(reranked_docs)
+                else:
+                    mmr_k = max(0, int(mmr_k_raw))
+
+                mmr_fetch_raw = get_override(rag_cfg, "mmrFetchK", "mmr_fetch_k", default=UNSET)
+                if mmr_fetch_raw is UNSET:
+                    mmr_fetch_raw = self.mmr_fetch_k
+                if mmr_fetch_raw is None:
+                    mmr_fetch_k = len(reranked_docs)
+                else:
+                    mmr_fetch_k = max(0, int(mmr_fetch_raw))
+                if mmr_fetch_k < mmr_k:
+                    mmr_fetch_k = mmr_k
+
+                mmr_lambda_raw = get_override(rag_cfg, "mmrLambda", "mmr_lambda", default=UNSET)
+                if mmr_lambda_raw is UNSET:
+                    mmr_lambda_raw = self.mmr_lambda_mult
+                mmr_lambda = (
+                    float(mmr_lambda_raw)
+                    if mmr_lambda_raw is not None
+                    else MMRConfig().lambda_mult
+                )
+
+                mmr_similarity_raw = get_override(
+                    rag_cfg,
+                    "mmrSimilarityThreshold",
+                    "mmr_similarity_threshold",
+                    default=UNSET,
+                )
+                if mmr_similarity_raw is UNSET:
+                    mmr_similarity_raw = self.mmr_similarity_threshold
+                if mmr_similarity_raw is UNSET:
+                    mmr_similarity = MMRConfig().similarity_threshold
+                elif mmr_similarity_raw is None:
+                    mmr_similarity = None
+                else:
+                    mmr_similarity = float(mmr_similarity_raw)
+
+                mmr_cfg = MMRConfig(
+                    k=mmr_k,
+                    fetch_k=mmr_fetch_k,
+                    lambda_mult=mmr_lambda,
+                    similarity_threshold=mmr_similarity,
+                )
+                mmr_docs = MMRPostprocessor(mmr_cfg).apply(query=q, docs=reranked_docs)
+                if stream_ctx.get("has_stream"):
+                    await emit_stage_event(
+                        stream_ctx,
+                        "rag_mmr.completed",
+                        query=q,
+                        hits=len(mmr_docs),
+                        input_hits=len(reranked_docs),
+                        output_hits=len(mmr_docs),
+                        input_chars=total_chars(reranked_docs),
+                        output_chars=total_chars(mmr_docs),
+                        mmr_k=mmr_cfg.k,
+                        mmr_fetch_k=mmr_cfg.fetch_k,
+                        mmr_lambda=mmr_cfg.lambda_mult,
+                        mmr_similarity_threshold=mmr_cfg.similarity_threshold,
+                        took_ms=int((monotonic() - mmr_started_at) * 1000),
+                    )
             except Exception as e:
                 logger.warning("[RAG] mmr failed: %s", e)
                 mmr_docs = reranked_docs
-            logger.debug("[RAG] mmr_docs: %s", len(mmr_docs))
-            compress_started_at = monotonic()
-            if has_stream:
-                await _emit_stage_event(
-                    "rag_compress.in_progress",
-                    query=q,
-                    hits=len(mmr_docs),
-                    input_hits=len(mmr_docs),
-                    input_chars=_total_chars(mmr_docs),
-                    max_context=self.max_context,
-                    use_llm=self.llm_compressor is not None,
-                )
-            compressed_docs, heuristic_hits, llm_applied = await self.compress_docs(mmr_docs, q)
-            if has_stream:
-                await _emit_stage_event(
-                    "rag_compress.completed",
-                    query=q,
-                    hits=len(compressed_docs),
-                    input_hits=len(mmr_docs),
-                    output_hits=len(compressed_docs),
-                    input_chars=_total_chars(mmr_docs),
-                    output_chars=_total_chars(compressed_docs),
-                    max_context=self.max_context,
-                    use_llm=self.llm_compressor is not None,
-                    heuristic_hits=heuristic_hits,
-                    llm_applied=llm_applied,
-                    took_ms=int((monotonic() - compress_started_at) * 1000),
-                )
-            logger.debug("[RAG] compressed_docs: %s", len(compressed_docs))
-            if not compressed_docs:
-                logger.warning("[RAG] No relevant documents found for query.")
-                return {
-                    "question": q,
-                    "context": "No relevant documents were found. Providing a general answer to the question.",
-                    "citations": [],
-                }
+        logger.debug("[RAG] mmr_docs: %s", len(mmr_docs))
+        state.mmr_docs = mmr_docs
+        return state
 
-            context, citations = self.join_context(compressed_docs)
-            return {"question": q, "context": context, "citations": citations}
-
-        def _log_prompt_value(pv):
-            """
-            Pretty-print the prompt value (messages and roles) for debugging.
-            """
+    async def stage_compress(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        state = self._ensure_state(inputs)
+        q = state.question
+        rag_cfg = state.rag or {}
+        mmr_docs = list(state.mmr_docs or state.reranked_docs or state.docs or [])
+        stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
+        state.stream_ctx = stream_ctx
+        if not mmr_docs:
+            logger.debug("[RAG] compress skipped: no docs")
+            state.compressed_docs = []
+            state.heuristic_hits = 0
+            state.llm_applied = False
+            return state
+        max_context = get_override(rag_cfg, "maxContext", "max_context", default=UNSET)
+        if max_context is UNSET:
+            max_context = self.max_context
+        if max_context is not None:
             try:
-                msgs = pv.to_messages()
-                logger.debug("[PROMPT] -----")
-                for m in msgs:
-                    role = getattr(m, "type", None) or getattr(m, "role", "")
-                    content = getattr(m, "content", "")
-                    logger.debug(f"[{role}] {content}")
-                logger.debug("-----")
+                max_context = int(max_context)
             except Exception:
-                try:
-                    logger.debug("[PROMPT_STR] %s", pv.to_string())
-                except Exception:
-                    logger.debug("[PROMPT_RAW] %s", pv)
-            return pv
-
-        async def _with_prompt(inputs: Dict[str, Any]):
-            prompt_value = await self.prompt.ainvoke(
-                {"question": inputs["question"], "context": inputs["context"]}
+                max_context = self.max_context
+        use_llm_raw = get_override(rag_cfg, "useLlm", "use_llm", default=UNSET)
+        if use_llm_raw is UNSET or use_llm_raw is None:
+            use_llm = self.llm_compressor is not None
+        else:
+            use_llm = bool(use_llm_raw)
+        compress_started_at = monotonic()
+        if stream_ctx.get("has_stream"):
+            await emit_stage_event(
+                stream_ctx,
+                "rag_compress.in_progress",
+                query=q,
+                hits=len(mmr_docs),
+                input_hits=len(mmr_docs),
+                input_chars=total_chars(mmr_docs),
+                max_context=max_context,
+                use_llm=use_llm,
             )
-            return {"prompt": prompt_value, "citations": inputs.get("citations")}
+        compressed_docs, heuristic_hits, llm_applied = await self.compress_docs(
+            mmr_docs,
+            q,
+            max_context=max_context,
+            use_llm=use_llm,
+        )
+        if stream_ctx.get("has_stream"):
+            await emit_stage_event(
+                stream_ctx,
+                "rag_compress.completed",
+                query=q,
+                hits=len(compressed_docs),
+                input_hits=len(mmr_docs),
+                output_hits=len(compressed_docs),
+                input_chars=total_chars(mmr_docs),
+                output_chars=total_chars(compressed_docs),
+                max_context=max_context,
+                use_llm=use_llm,
+                heuristic_hits=heuristic_hits,
+                llm_applied=llm_applied,
+                took_ms=int((monotonic() - compress_started_at) * 1000),
+            )
+        logger.debug("[RAG] compressed_docs: %s", len(compressed_docs))
+        state.compressed_docs = compressed_docs
+        state.heuristic_hits = heuristic_hits
+        state.llm_applied = llm_applied
+        return state
 
+    async def stage_join_context(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        state = self._ensure_state(inputs)
+        docs = state.compressed_docs or state.mmr_docs or state.reranked_docs or state.docs or []
+        compressed_docs = list(docs)
+        if not compressed_docs:
+            logger.warning("[RAG] No relevant documents found for query.")
+            state.context = (
+                "No relevant documents were found. Providing a general answer to the question."
+            )
+            state.citations = []
+            return state
+
+        context, citations = self.join_context(compressed_docs)
+        state.context = context
+        state.citations = citations
+        return state
+
+    async def stage_prompt(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        state = self._ensure_state(inputs)
+        prompt_value = await self.prompt.ainvoke(
+            {"question": state.question, "context": state.context or ""}
+        )
+        state.prompt = prompt_value
+        return state
+
+    async def stage_search_call_end(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        state = self._ensure_state(inputs)
+        stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
+        state.stream_ctx = stream_ctx
+        hits = len(
+            state.compressed_docs
+            or state.mmr_docs
+            or state.reranked_docs
+            or state.docs
+            or []
+        )
+        started_at = state.extra.get("search_call_started_at")
+        took_ms = None
+        if isinstance(started_at, (int, float)):
+            took_ms = int((monotonic() - started_at) * 1000)
+        if stream_ctx.get("has_stream"):
+            await emit_search_event(
+                stream_ctx,
+                "rag_search_call.completed",
+                query=state.question,
+                hits=hits,
+                took_ms=took_ms,
+            )
+        return state
+
+    def build(self):
+        """
+        Create the final RAG chain (prompt).
+        Injects context via a retriever step.
+        """
         return (
-                RunnableLambda(_with_context)
-                | RunnableLambda(_with_prompt)
+            RunnableLambda(self.stage_search_call_start)
+            | RunnableLambda(self.stage_retrieve)
+            | RunnableLambda(self.stage_rerank)
+            | RunnableLambda(self.stage_mmr)
+            | RunnableLambda(self.stage_compress)
+            | RunnableLambda(self.stage_join_context)
+            | RunnableLambda(self.stage_prompt)
+            | RunnableLambda(self.stage_search_call_end)
         )
 
 def make_rag_chain(

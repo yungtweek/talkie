@@ -5,13 +5,23 @@ import remarkBreaks from 'remark-breaks';
 import rehypeSanitize from 'rehype-sanitize';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ChatEdge } from '@/features/chat/chat.types';
+import {
+  ChatEdge,
+  RagEventStatus,
+  RagSearchSnapshot,
+  RagSearchKey,
+  RagStageKey,
+  RagStagePayload,
+} from '@/features/chat/chat.types';
 import { safeJsonParse } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
-import { IconCheck, IconCopy } from '@tabler/icons-react';
+import { IconCheck, IconCopy, IconFileText } from '@tabler/icons-react';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { Spinner } from '@/components/ui/spinner';
+import { Badge } from '@/components/ui/badge';
+import { ChevronDown } from 'lucide-react';
 
 type CodeBlockProps = React.HTMLAttributes<HTMLElement> & {
   inline?: boolean;
@@ -58,13 +68,7 @@ const CodeBlock = ({ className, children, node: _node, ...props }: CodeBlockProp
   );
 };
 
-export default function ChatMessage({
-  chat,
-  showDots,
-}: {
-  chat: ChatEdge;
-  showDots?: boolean;
-}) {
+export default function ChatMessage({ chat, showDots }: { chat: ChatEdge; showDots?: boolean }) {
   const { isCopied, copy } = useCopyToClipboard();
 
   const role = chat.node.role;
@@ -74,9 +78,9 @@ export default function ChatMessage({
       ? 'group ml-auto w-fit max-w-[80%] flex flex-col'
       : role === 'assistant'
         ? 'w-full max-w-[100%] mb-8'
-      : role === 'system'
-        ? 'w-full px-6 py-3'
-        : '';
+        : role === 'system'
+          ? 'w-full px-6 py-3'
+          : '';
   const markdownClass =
     role === 'user'
       ? 'rounded-3xl bg-[var(--border)] px-5 py-2 prose-p:my-0'
@@ -84,49 +88,166 @@ export default function ChatMessage({
         ? '[&>:last-child]:mb-2 [&>:first-child]:mt-2'
         : '';
   const actionsClass =
-    role === 'user'
-      ? 'self-end opacity-0 transition-opacity group-hover:opacity-100'
-      : '';
+    role === 'user' ? 'self-end opacity-0 transition-opacity group-hover:opacity-100' : '';
 
-  const citations = safeJsonParse<{
-    citations?: Array<{
-      title?: string;
-      snippet?: string;
-      file_name?: string;
-      source_id?: string;
-      rerank_score?: number;
-    }>;
-  }>(chat.node.sourcesJson, { citations: [] }).citations ?? [];
+  const citations =
+    safeJsonParse<{
+      citations?: Array<{
+        title?: string;
+        snippet?: string;
+        file_name?: string;
+        source_id?: string;
+        rerank_score?: number;
+      }>;
+    }>(chat.node.sourcesJson, { citations: [] }).citations ?? [];
 
   const ragSearch = useMemo(() => {
+    const parsed = safeJsonParse<RagSearchSnapshot | Record<string, unknown>>(
+      chat.node.ragSearchJson,
+      {},
+    );
+    const normalized: RagSearchSnapshot = {
+      wrapper: {},
+      stages: {},
+    };
+    if (parsed && ('wrapper' in parsed || 'stages' in parsed)) {
+      if (parsed.wrapper) {
+        normalized.wrapper = { ...parsed.wrapper };
+      }
+      if (parsed.stages) {
+        normalized.stages = { ...parsed.stages };
+      }
+    }
+
     if (chat.node.ragSearch) {
-      return {
-        inProgress: chat.node.ragSearch.status === 'in_progress' ? chat.node.ragSearch : null,
-        completed: chat.node.ragSearch.status === 'completed' ? chat.node.ragSearch : null,
-      };
+      if ('meta' in chat.node.ragSearch) {
+        const { meta, payload } = chat.node.ragSearch;
+        if (meta.scope === 'wrapper') {
+          const target = normalized.wrapper?.searchCall ?? { inProgress: null, completed: null };
+          if (meta.status === 'in_progress' && !target.inProgress) {
+            target.inProgress = payload ?? null;
+          }
+          if (meta.status === 'completed' && !target.completed) {
+            target.completed = payload ?? null;
+          }
+          normalized.wrapper = { ...(normalized.wrapper ?? {}), searchCall: target };
+        } else {
+          const target = normalized.stages?.[meta.key] ?? { inProgress: null, completed: null };
+          if (meta.status === 'in_progress' && !target.inProgress) {
+            target.inProgress = payload ?? null;
+          }
+          if (meta.status === 'completed' && !target.completed) {
+            target.completed = payload ?? null;
+          }
+          normalized.stages = { ...(normalized.stages ?? {}), [meta.key]: target };
+        }
+      }
     }
-    if (!chat.node.ragSearchJson) {
-      return null;
-    }
-    const parsed = safeJsonParse<{
-      inProgress?: {
-        query?: string;
-        hits?: number;
-        tookMs?: number;
-      } | null;
-      completed?: {
-        query?: string;
-        hits?: number;
-        tookMs?: number;
-      } | null;
-    }>(chat.node.ragSearchJson, { inProgress: null, completed: null });
-    const inProgress = parsed.inProgress ?? null;
-    const completed = parsed.completed ?? null;
-    if (!inProgress && !completed) return null;
-    return { inProgress, completed };
+
+    const hasStage =
+      Boolean(
+        normalized.wrapper?.searchCall?.inProgress || normalized.wrapper?.searchCall?.completed,
+      ) ||
+      Boolean(
+        normalized.stages &&
+          Object.values(normalized.stages).some(stage => stage?.inProgress || stage?.completed),
+      );
+    return hasStage ? normalized : null;
   }, [chat.node.ragSearch, chat.node.ragSearchJson]);
 
-  const isRagSearchActive = Boolean(ragSearch?.inProgress && !ragSearch?.completed);
+  const stageLabels: Record<RagSearchKey, string> = {
+    searchCall: 'Search Call',
+    retrieve: 'Retrieve',
+    rerank: 'Rerank',
+    mmr: 'MMR',
+    compress: 'Compress',
+  };
+  const detailStageOrder: RagStageKey[] = ['retrieve', 'rerank', 'mmr', 'compress'];
+
+  const ragStages = useMemo(() => {
+    if (!ragSearch) return [];
+    const entries: Array<{
+      key: RagStageKey;
+      label: string;
+      status: RagEventStatus;
+      payload: RagStagePayload | null;
+    }> = [];
+    for (const key of detailStageOrder) {
+      const snapshot = ragSearch.stages?.[key];
+      if (!snapshot?.completed) continue;
+      entries.push({
+        key,
+        label: stageLabels[key],
+        status: 'completed',
+        payload: snapshot.completed ?? null,
+      });
+    }
+    return entries;
+  }, [ragSearch]);
+
+  const formatStageMetrics = (
+    payload?: RagStagePayload | null,
+    options?: { useSeconds?: boolean },
+  ) => {
+    if (!payload) return '';
+    const useSeconds = options?.useSeconds ?? false;
+    const parts: string[] = [];
+    if (typeof payload.inputHits === 'number' && typeof payload.outputHits === 'number') {
+      parts.push(`${payload.inputHits}->${payload.outputHits} hits`);
+    } else if (typeof payload.outputHits === 'number') {
+      parts.push(`${payload.outputHits} hits`);
+    } else if (typeof payload.hits === 'number') {
+      parts.push(`${payload.hits} hits`);
+    }
+    if (typeof payload.tookMs === 'number') {
+      if (useSeconds) {
+        parts.push(`${(payload.tookMs / 1000).toFixed(2)}s`);
+      } else {
+        parts.push(`${payload.tookMs}ms`);
+      }
+    }
+    return parts.length ? parts.join(' · ') : '';
+  };
+
+  const summaryState = useMemo(() => {
+    if (!ragSearch) return null;
+    const searchCall = ragSearch.wrapper?.searchCall;
+    if (searchCall?.completed) {
+      return {
+        key: 'searchCall' as RagSearchKey,
+        status: 'completed' as RagEventStatus,
+        payload: searchCall.completed ?? searchCall.inProgress ?? null,
+      };
+    }
+    for (const key of detailStageOrder) {
+      const snapshot = ragSearch.stages?.[key];
+      if (snapshot?.inProgress && !snapshot?.completed) {
+        return {
+          key,
+          status: 'in_progress' as RagEventStatus,
+          payload: snapshot.inProgress ?? null,
+        };
+      }
+    }
+    if (searchCall?.inProgress) {
+      return {
+        key: 'searchCall' as RagSearchKey,
+        status: 'in_progress' as RagEventStatus,
+        payload: searchCall.inProgress ?? null,
+      };
+    }
+    return null;
+  }, [ragSearch]);
+
+  const summaryPayload = summaryState?.payload ?? null;
+  const summaryStatus = summaryState?.status ?? null;
+  const isRagSearchActive = summaryStatus === 'in_progress';
+  const summaryMetrics = formatStageMetrics(summaryPayload, { useSeconds: true });
+  const statusBadgeClass =
+    summaryStatus === 'completed'
+      ? 'text-[color:var(--ok-fg)] bg-[color:var(--ok-bg)] border-[color:var(--ok-bg)]'
+      : '';
+  const statusTextClass = summaryStatus === 'in_progress' ? 'animate-pulse' : '';
 
   const groupedCitations = useMemo(() => {
     const groups = new Map<string, typeof citations>();
@@ -160,68 +281,74 @@ export default function ChatMessage({
         data-role={chat.node.role}
         data-message-id={messageId ?? undefined}
       >
-        {ragSearch && (
+        {summaryStatus && (
           <div className="mb-2 text-xs text-muted-foreground">
-            <Collapsible defaultOpen={false}>
+            <Collapsible defaultOpen={false} className="group/collapsible">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="flex w-full items-center cursor-pointer justify-between gap-2 text-xs text-muted-foreground"
+                  className="flex w-full items-center cursor-pointer gap-2 text-xs text-muted-foreground my-2"
                 >
-                  <span className="font-medium">
-                    RAG Search
-                    {ragSearch.completed ? (
-                      <span>
-                        {' '}
-                        · completed
-                        {typeof ragSearch.completed.hits === 'number'
-                          ? ` · ${ragSearch.completed.hits} hits`
-                          : ''}
-                        {typeof ragSearch.completed.tookMs === 'number'
-                          ? ` · ${ragSearch.completed.tookMs}ms`
-                          : ''}
-                      </span>
-                    ) : (
-                      <span> · in progress</span>
-                    )}
-                  </span>
-                  <span className="text-xs text-muted-foreground underline">Details</span>
+                  {summaryState?.key === 'searchCall' && summaryStatus === 'completed' ? (
+                    <IconFileText className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Spinner />
+                  )}
+                  <span className="font-medium">RAG Search</span>
+                  {summaryStatus ? (
+                    <>
+                      <span className="text-muted-foreground">·</span>
+                      <Badge variant="outline" className={`font-medium ${statusBadgeClass}`}>
+                        <span className={statusTextClass}>
+                          {summaryState?.key && summaryState.key !== 'searchCall'
+                            ? `${stageLabels[summaryState.key]} in progress`
+                            : summaryStatus === 'completed'
+                              ? 'completed'
+                              : 'in progress'}
+                        </span>
+                      </Badge>
+                      {summaryMetrics ? (
+                        <span className="text-muted-foreground">· {summaryMetrics}</span>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {ragStages.length > 0 ? (
+                    <ChevronDown className="w-4 h-4 ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-180" />
+                  ) : null}
                 </button>
               </CollapsibleTrigger>
-              {(ragSearch.inProgress || ragSearch.completed) && (
+              {ragStages.length > 0 ? (
                 <CollapsibleContent className="mt-2">
                   <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                     <div className="font-medium text-foreground/70">RAG Search</div>
                     <div className="mt-2 space-y-2">
-                      {ragSearch.inProgress && (
-                        <div className="flex items-center gap-2">
-                          <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" />
-                          <span>Started</span>
-                        </div>
-                      )}
-                      {ragSearch.completed && (
-                        <div className="flex items-center gap-2">
-                          <span className="h-1.5 w-1.5 rounded-full bg-foreground/60" />
-                          <span>
-                            Completed
-                            {typeof ragSearch.completed.hits === 'number'
-                              ? ` · ${ragSearch.completed.hits} hits`
-                              : ''}
-                            {typeof ragSearch.completed.tookMs === 'number'
-                              ? ` · ${ragSearch.completed.tookMs}ms`
-                              : ''}
-                          </span>
-                        </div>
-                      )}
+                      {ragStages.map(stage => {
+                        const statusLabel =
+                          stage.status === 'completed' ? 'completed' : 'in progress';
+                        const dotClass =
+                          stage.status === 'completed'
+                            ? 'bg-foreground/60'
+                            : 'bg-muted-foreground/60';
+                        const metrics = formatStageMetrics(stage.payload);
+                        return (
+                          <div key={stage.key} className="flex items-center gap-2">
+                            <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+                            <span>
+                              {stage.label} · {statusLabel}
+                              {metrics ? ` · ${metrics}` : ''}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </CollapsibleContent>
-              )}
+              ) : null}
             </Collapsible>
           </div>
         )}
-      {showDots && !isRagSearchActive && (
-        <div className="mt-0 inline-flex gap-1">
+        {showDots && !isRagSearchActive && (
+          <div className="mt-0 inline-flex gap-1">
             <span className="inline-block animate-bounce" style={{ animationDelay: '0ms' }}>
               .
             </span>
@@ -233,25 +360,27 @@ export default function ChatMessage({
             </span>
           </div>
         )}
-      <div className={markdownClass}>
-        <ReactMarkdown
-          remarkPlugins={[remarkBreaks]}
-          rehypePlugins={[rehypeSanitize]}
-          components={{
-            br: () => <br />,
-            pre({ children }) {
-              return <>{children}</>; // 바깥 pre 제거
-            },
-            code(CodeProps) {
-              return <CodeBlock {...CodeProps} />;
-            },
-          }}
-        >
-          {chat.node.content}
-        </ReactMarkdown>
-      </div>
+        <div className={markdownClass}>
+          <ReactMarkdown
+            remarkPlugins={[remarkBreaks]}
+            rehypePlugins={[rehypeSanitize]}
+            components={{
+              br: () => <br />,
+              pre({ children }) {
+                return <>{children}</>; // 바깥 pre 제거
+              },
+              code(CodeProps) {
+                return <CodeBlock {...CodeProps} />;
+              },
+            }}
+          >
+            {chat.node.content}
+          </ReactMarkdown>
+        </div>
         {chat.node.streamDone !== false && (
-          <div className={clsx('flex items-center gap-2 text-xs text-muted-foreground', actionsClass)}>
+          <div
+            className={clsx('flex items-center gap-2 text-xs text-muted-foreground', actionsClass)}
+          >
             <Button
               type="button"
               variant="ghost"

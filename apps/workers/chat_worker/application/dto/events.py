@@ -5,11 +5,27 @@ from typing import Literal, Optional
 from chat_worker.application.dto.common import MyBaseModel
 
 
+RagSearchEventType = Literal[
+    "rag_retrieve.in_progress",
+    "rag_retrieve.completed",
+    "rag_search_call.in_progress",
+    "rag_search_call.completed",
+]
+RagStageEventType = Literal[
+    "rag_rerank.in_progress",
+    "rag_rerank.completed",
+    "rag_mmr.in_progress",
+    "rag_mmr.completed",
+    "rag_compress.in_progress",
+    "rag_compress.completed",
+]
+
+
 class RagSearchCallEvent(MyBaseModel):
     """
     Stream event payload for RAG search lifecycle.
     """
-    event: Literal["rag_retrieve.in_progress", "rag_retrieve.completed"]
+    event: RagSearchEventType
     job_id: str
     user_id: str
     session_id: Optional[str] = None
@@ -22,14 +38,7 @@ class RagStageCallEvent(MyBaseModel):
     """
     Stream event payload for RAG stage lifecycle (rerank/mmr/compress).
     """
-    event: Literal[
-        "rag_rerank.in_progress",
-        "rag_rerank.completed",
-        "rag_mmr.in_progress",
-        "rag_mmr.completed",
-        "rag_compress.in_progress",
-        "rag_compress.completed",
-    ]
+    event: RagStageEventType
     job_id: str
     user_id: str
     session_id: Optional[str] = None

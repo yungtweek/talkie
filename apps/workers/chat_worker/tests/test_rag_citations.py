@@ -131,7 +131,7 @@ class RagStageEventTests(unittest.IsolatedAsyncioTestCase):
         pipeline.reranker = DummyReranker()
 
         class DummyRetriever:
-            def invoke(self, _q: str) -> list[Document]:
+            def invoke(self, _q: str, **_kwargs) -> list[Document]:
                 return docs
 
         pipeline.build_retriever = lambda **_kwargs: DummyRetriever()  # type: ignore[assignment]
