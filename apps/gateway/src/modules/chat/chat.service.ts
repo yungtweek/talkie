@@ -5,7 +5,7 @@
  * - Also bridges Redis streams for chat and session-level events.
  */
 // src/modules/chat/chat.service.ts
-import { Inject, Injectable, Logger, MessageEvent, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, MessageEvent, NotFoundException, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
@@ -47,7 +47,7 @@ const sessionEventSchema = z
 
 /** Core service layer handling enqueueing, Kafka publishing, and Redis stream bridges. */
 @Injectable()
-export class ChatService {
+export class ChatService implements OnModuleDestroy {
   private redis: Redis;
   private readonly logger = new Logger(ChatService.name);
   constructor(
@@ -57,6 +57,16 @@ export class ChatService {
     @Inject(SESSION_PUBSUB) private readonly pubSub: PubSubEngine,
   ) {
     this.redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379');
+  }
+
+  async onModuleDestroy() {
+    try {
+      await this.redis.quit();
+    } catch {
+      // ignore quit errors and force disconnect
+    } finally {
+      this.redis.disconnect();
+    }
   }
 
   /**

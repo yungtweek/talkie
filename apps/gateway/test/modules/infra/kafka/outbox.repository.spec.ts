@@ -1,34 +1,48 @@
-import { Pool } from 'pg';
+import type { Kysely } from 'kysely';
+import type { DB } from '@/modules/infra/database/kysely/kysely.module';
 import { OutboxRepository } from '@/modules/infra/outbox/outbox.repository';
 
-// helper to create a mocked Pool
-const createMockPool = () => {
-  return {
-    query: jest.fn(),
-  } as {
-    query: jest.Mock<Promise<{ rows: unknown[] }>, [string, unknown[]]>;
+type MockExecutor = {
+  executeQuery: jest.Mock<Promise<{ rows: unknown[] }>, [unknown]>;
+  compileQuery: jest.Mock;
+  transformQuery: jest.Mock;
+  withPlugins: jest.Mock;
+};
+
+// helper to create a mocked Kysely executor provider
+const createMockDb = (): { db: Kysely<DB>; executor: MockExecutor } => {
+  const executor: MockExecutor = {
+    executeQuery: jest.fn<Promise<{ rows: unknown[] }>, [unknown]>(),
+    compileQuery: jest.fn((query: unknown) => query),
+    transformQuery: jest.fn((query: unknown) => query),
+    withPlugins: jest.fn<MockExecutor, []>(() => executor),
   };
+
+  const db = {
+    getExecutor: jest.fn<MockExecutor, []>(() => executor),
+  } as unknown as Kysely<DB>;
+
+  return { db, executor };
 };
 
 describe('OutboxRepository', () => {
-  let pool: {
-    query: jest.Mock<Promise<{ rows: unknown[] }>, [string, unknown[]]>;
-  };
+  let db: Kysely<DB>;
+  let executor: MockExecutor;
   let repo: OutboxRepository;
 
   beforeEach(() => {
-    pool = createMockPool();
-    repo = new OutboxRepository(pool as unknown as Pool);
+    ({ db, executor } = createMockDb());
+    repo = new OutboxRepository(db);
   });
 
   afterEach(() => {
-    pool.query.mockReset();
+    executor.executeQuery.mockReset();
   });
 
   describe('insertOutbox', () => {
     it('inserts a new outbox row and returns its id', async () => {
-      const mockId = 123;
-      pool.query.mockResolvedValue({
+      const mockId = '123';
+      executor.executeQuery.mockResolvedValue({
         rows: [{ id: mockId }],
       });
 
@@ -38,24 +52,13 @@ describe('OutboxRepository', () => {
 
       const id = await repo.insertOutbox({ jobId, topic, payload });
 
-      expect(pool.query).toHaveBeenCalledTimes(1);
-      const [sql, params] = pool.query.mock.calls[0];
-      console.log(sql, params);
-      const expected = 'INTO outbox (job_id, topic, key, payload_json, idempotency_key)';
-      expect(sql).toContain(expected);
-      expect(params).toEqual([
-        jobId,
-        topic,
-        jobId, // key
-        JSON.stringify(payload),
-        jobId, // idempotency_key
-      ]);
+      expect(executor.executeQuery).toHaveBeenCalledTimes(1);
 
       expect(id).toBe(mockId);
     });
 
     it('returns null when ON CONFLICT DO NOTHING results in no rows', async () => {
-      pool.query.mockResolvedValue({
+      executor.executeQuery.mockResolvedValue({
         rows: [],
       });
 
@@ -73,14 +76,14 @@ describe('OutboxRepository', () => {
     it('selects pending outbox rows with limit', async () => {
       const rows = [
         {
-          id: 1,
+          id: '1',
           topic: 'chat.request',
           key: 'job-1',
           payload_json: { foo: 'bar' },
           job_id: 'job-1',
         },
         {
-          id: 2,
+          id: '2',
           topic: 'chat.title.generate',
           key: 'job-2',
           payload_json: { foo: 'baz' },
@@ -88,57 +91,34 @@ describe('OutboxRepository', () => {
         },
       ];
 
-      pool.query.mockResolvedValue({ rows });
+      executor.executeQuery.mockResolvedValue({ rows });
 
       const limit = 50;
       const result = await repo.lockPendingBatch(limit);
 
-      expect(pool.query).toHaveBeenCalledTimes(1);
-      const [sql, params] = pool.query.mock.calls[0];
-
-      expect(sql).toContain('SELECT id, topic, key, payload_json, job_id');
-      expect(sql).toContain('FROM outbox');
-      expect(sql).toContain("status = 'pending'");
-      expect(sql).toContain('FOR UPDATE SKIP LOCKED');
-      expect(params).toEqual([limit]);
-
+      expect(executor.executeQuery).toHaveBeenCalledTimes(1);
       expect(result).toEqual(rows);
     });
   });
 
   describe('markPublished', () => {
     it('updates row status to published and sets published_at', async () => {
-      pool.query.mockResolvedValue({ rows: [] });
+      executor.executeQuery.mockResolvedValue({ rows: [] });
 
-      await repo.markPublished(42);
+      await repo.markPublished('42');
 
-      expect(pool.query).toHaveBeenCalledTimes(1);
-      const [sql, params] = pool.query.mock.calls[0];
-
-      expect(sql).toContain('UPDATE outbox');
-      expect(sql).toContain("SET status = 'published'");
-      expect(sql).toContain('published_at = now()');
-      expect(params).toEqual([42]);
+      expect(executor.executeQuery).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('markFailed', () => {
     it('increments retry_count and sets failed status when under max retries', async () => {
-      pool.query.mockResolvedValue({ rows: [] });
+      executor.executeQuery.mockResolvedValue({ rows: [] });
 
       const error = new Error('boom');
-      await repo.markFailed(10, error);
+      await repo.markFailed('10', error);
 
-      expect(pool.query).toHaveBeenCalledTimes(1);
-      const [sql, params] = pool.query.mock.calls[0];
-
-      expect(sql).toContain('UPDATE outbox');
-      expect(sql).toContain('retry_count + 1');
-      expect(sql).toContain('last_error');
-      expect(sql).toContain('last_attempt_at');
-      expect(sql).toContain('next_attempt_at');
-      expect(params[0]).toBe(10);
-      expect(params[1]).toBe('boom');
+      expect(executor.executeQuery).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -59,6 +59,7 @@ export const PG_POOL = DATABASE_POOL;
   exports: [DATABASE_POOL],
 })
 export class DatabaseModule implements OnModuleDestroy {
+  // Owns DATABASE_POOL lifecycle; consumers must not end the shared pool.
   constructor(@Inject(DATABASE_POOL) private readonly pool: Pool) {}
   async onModuleDestroy() {
     await this.pool.end();

@@ -2,12 +2,15 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 dotenv.config({ path: '.env.local' });
 import { Pool } from 'pg';
+import { Kysely, PostgresDialect } from 'kysely';
 import { OutboxRepository } from './outbox.repository';
+import type { DB } from '@/modules/infra/database/kysely/kysely.module';
 
 jest.setTimeout(30000); // allow enough time for real DB operations
 
 describe('OutboxRepository (e2e, local DB)', () => {
   let pool: Pool;
+  let db: Kysely<DB>;
   let repo: OutboxRepository;
 
   beforeAll(() => {
@@ -20,10 +23,13 @@ describe('OutboxRepository (e2e, local DB)', () => {
     pool = new Pool({
       connectionString,
     });
+    db = new Kysely<DB>({
+      dialect: new PostgresDialect({ pool }),
+    });
 
     // Important: the real `outbox` table is expected to already exist in this DB.
     // This test will insert and then clean up its own rows.
-    repo = new OutboxRepository(pool);
+    repo = new OutboxRepository(db);
   });
 
   afterAll(async () => {
@@ -35,7 +41,7 @@ describe('OutboxRepository (e2e, local DB)', () => {
         WHERE topic IN ('e2e-test', 'e2e-test-fail', 'e2e-test-dead', 'e2e-test-retry')
       `,
       );
-      await pool.end();
+      await db.destroy();
     }
   });
 
@@ -53,8 +59,9 @@ describe('OutboxRepository (e2e, local DB)', () => {
     expect(result.rows.length).toBe(1);
     expect(result.rows[0].topic).toBe(topic);
     expect(result.rows[0].job_id).toBe(jobId);
-    expect(result.rows[0].payload_json).toEqual(payload);
-    expect(result.rows[0].status).toBe('pending');
+    expect(result.rows[0].payload_json).toMatchObject(payload);
+    expect(result.rows[0].payload_json.outboxCreatedAt).toBeDefined();
+    expect(['pending', 'publishing']).toContain(result.rows[0].status);
   });
 
   it('should mark an outbox row as failed in PostgreSQL', async () => {

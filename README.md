@@ -101,3 +101,4 @@ make dev-all
 - `docs/architecture/ingest-overview.md`
 - `docs/architecture/chat-session-deletion-overview.md`
 - `docs/architecture/outbox-overview.md`
+- `docs/architecture/database-lifecycle.md`

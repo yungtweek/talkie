@@ -6,10 +6,12 @@ import { GraphqlModule } from '@/modules/infra/graphql/graphql.module';
 import { PubSubModule } from '@/modules/infra/pubsub/pubsub.module';
 import { DatabaseModule } from '@/modules/infra/database/database.module';
 import { OutboxModule } from '@/modules/infra/outbox/outbox.module';
+import { KyselyModule } from '@/modules/infra/database/kysely/kysely.module';
 
 @Module({
   imports: [
     DatabaseModule,
+    KyselyModule,
     KafkaModule,
     ObjectStorageModule,
     GraphqlModule,
@@ -18,6 +20,7 @@ import { OutboxModule } from '@/modules/infra/outbox/outbox.module';
   ],
   exports: [
     DatabaseModule,
+    KyselyModule,
     KafkaModule,
     ObjectStorageModule,
     GraphqlModule,

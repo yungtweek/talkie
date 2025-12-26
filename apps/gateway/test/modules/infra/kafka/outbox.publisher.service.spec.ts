@@ -64,7 +64,14 @@ describe('OutboxPublisherService', () => {
     await service.pollAndPublish();
 
     expect(mockKafka.produce).toHaveBeenCalledTimes(1);
-    expect(mockKafka.produce).toHaveBeenCalledWith('chat.request', { foo: 'bar' }, 'job-123');
+    expect(mockKafka.produce).toHaveBeenCalledWith(
+      'chat.request',
+      expect.objectContaining({
+        foo: 'bar',
+        outboxPublishedAt: expect.any(String),
+      }),
+      'job-123',
+    );
 
     expect(mockOutboxRepo.markPublished).toHaveBeenCalledTimes(1);
     expect(mockOutboxRepo.markPublished).toHaveBeenCalledWith(1);
