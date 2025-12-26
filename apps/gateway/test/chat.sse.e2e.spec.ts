@@ -1,13 +1,22 @@
 // apps/gateway/src/modules/chat/chat.service.spec.ts
 import { Test } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { ExecutionContext, INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { AppModule } from '@/app.module';
+import crypto from 'crypto';
+import Redis from 'ioredis';
 import type { Server } from 'http';
-import { AuthModule } from '@/modules/auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { ChatModule } from '@/modules/chat/chat.module';
-import { DatabaseModule } from '@/modules/infra/database/database.module';
+import { DATABASE_POOL, DatabaseModule } from '@/modules/infra/database/database.module';
+import { KyselyModule } from '@/modules/infra/database/kysely/kysely.module';
+import { OutboxModule } from '@/modules/infra/outbox/outbox.module';
+import { OutboxPublisherService } from '@/modules/infra/outbox/outbox.publisher.service';
+import { PubSubModule, SESSION_PUBSUB } from '@/modules/infra/pubsub/pubsub.module';
+import { KafkaService } from '@/modules/infra/kafka/kafka.service';
+import { JwtAuthGuard } from '@/modules/auth/jwt.guard';
+import type { AuthUser } from '@/modules/auth/current-user.decorator';
+import type { Request } from 'express';
+import type { Pool } from 'pg';
 
 type ChatSsePayload = {
   event?: string;
@@ -31,31 +40,89 @@ const isChatSsePayload = (u: unknown): u is ChatSsePayload => {
 
 describe('SSE /v1/chat/stream/:jobId (e2e)', () => {
   let app: INestApplication;
+  let testUser: AuthUser;
+  let pool: Pool;
+  let redis: Redis;
 
   beforeAll(async () => {
+    const userId = crypto.randomUUID();
+    const publicNs = userId.replace(/-/g, '');
+    testUser = {
+      sub: userId,
+      pns: publicNs,
+      username: `test-user-${userId.slice(0, 8)}`,
+      email: `test-user-${userId.slice(0, 8)}@example.com`,
+      role: 'user',
+    };
+
     const m = await Test.createTestingModule({
       imports: [
         await ConfigModule.forRoot({
           isGlobal: true,
           envFilePath: '.env.local', // ✅ .env.local 파일 로드
         }),
-        AppModule,
         DatabaseModule,
-        AuthModule,
+        KyselyModule,
+        PubSubModule,
+        OutboxModule,
         ChatModule,
       ],
     })
       // 필요 시 KafkaService를 더미로 교체,
       // ChatService.stream 내부에서 Redis만 실제로 쓰도록
-      .overrideProvider('KafkaService')
+      .overrideProvider(KafkaService)
       .useValue({ produce: async () => {} })
+      .overrideProvider(OutboxPublisherService)
+      .useValue({})
+      .overrideProvider(SESSION_PUBSUB)
+      .useValue({
+        publish: () => Promise.resolve(true),
+        asyncIterator: () => ({
+          [Symbol.asyncIterator]() {
+            return this;
+          },
+          next: () => Promise.resolve({ value: undefined, done: true }),
+          return: () => Promise.resolve({ value: undefined, done: true }),
+          throw: () => Promise.resolve({ value: undefined, done: true }),
+        }),
+      })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({
+        canActivate: (context: ExecutionContext) => {
+          const req = context.switchToHttp().getRequest<Request & { user?: AuthUser }>();
+          if (req) {
+            req.user = testUser;
+          }
+          return true;
+        },
+      })
       .compile();
 
     app = m.createNestApplication();
     await app.init();
+
+    pool = app.get<Pool>(DATABASE_POOL);
+    redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379');
+    await pool.query(
+      `
+      INSERT INTO users (id, username, email, pwd_shadow, public_ns, created_at, updated_at)
+      VALUES ($1, $2, $3, NULL, $4, now(), now())
+      ON CONFLICT (id) DO NOTHING
+      `,
+      [testUser.sub, testUser.username, testUser.email ?? null, testUser.pns],
+    );
   });
 
   afterAll(async () => {
+    if (redis) {
+      try {
+        await redis.quit();
+      } catch {
+        // ignore redis shutdown errors in tests
+      } finally {
+        redis.disconnect();
+      }
+    }
     await app.close();
   });
 
@@ -63,28 +130,36 @@ describe('SSE /v1/chat/stream/:jobId (e2e)', () => {
     // Narrow the `any` return type from Nest's getHttpServer() to a concrete http.Server
     const server: Server = app.getHttpServer() as unknown as Server;
 
-    const login = await request(app.getHttpServer())
-      .post('/v1/auth/login')
-      .send({ username: 'tweek', password: 'Naruto1234567890' })
-      .expect(201);
-
-    const accessToken = login.body.access.token;
-    console.log(accessToken);
-
     // 0) 먼저 enqueue를 호출하여 jobId를 발급받는다
     const enqueueRes = await request(server)
       .post('/v1/chat')
-      .set('Authorization', `Bearer ${accessToken}`)
       .send({
         message: '나루토 vs 사스케',
+        jobId: crypto.randomUUID(),
         mode: 'gen',
       })
       .expect(201);
 
     const { jobId } = enqueueRes.body as { jobId: string };
+    const streamKey = `sse:chat:${jobId}:${testUser.sub}:events`;
+    const tokenEvent = {
+      event: 'token',
+      userId: testUser.sub,
+      jobId,
+      data: { content: 'hello' },
+    };
+    const doneEvent = {
+      event: 'done',
+      userId: testUser.sub,
+      jobId,
+      data: { content: '' },
+    };
+
+    await redis.xadd(streamKey, '*', 'data', JSON.stringify(tokenEvent));
+    await redis.xadd(streamKey, '*', 'data', JSON.stringify(doneEvent));
+
     const res = await request(server)
       .get(`/v1/chat/stream/${encodeURIComponent(jobId)}`)
-      .set('Authorization', `Bearer ${accessToken}`)
       .set('Accept', 'text/event-stream')
       .buffer(true)
       .parse((res, cb) => {

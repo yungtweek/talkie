@@ -1,10 +1,16 @@
 // apps/gateway/src/modules/pubsub/pubsub.module.ts
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, OnModuleDestroy } from '@nestjs/common';
 import { RedisPubSub } from 'graphql-redis-subscriptions';
 import type { PubSubEngine } from 'graphql-subscriptions';
 import type { RedisOptions } from 'ioredis';
 
 export const SESSION_PUBSUB = Symbol('SESSION_PUBSUB');
+
+class ManagedRedisPubSub extends RedisPubSub implements OnModuleDestroy {
+  onModuleDestroy() {
+    void this.close();
+  }
+}
 
 @Global()
 @Module({
@@ -43,7 +49,7 @@ export const SESSION_PUBSUB = Symbol('SESSION_PUBSUB');
         const options: ConstructorParameters<typeof RedisPubSub>[0] = {
           connection,
         };
-        return new RedisPubSub(options);
+        return new ManagedRedisPubSub(options);
       },
     },
   ],

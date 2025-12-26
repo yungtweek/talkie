@@ -1,20 +1,14 @@
 // infra/kafka/outbox.repository.ts
 import { Inject, Injectable } from '@nestjs/common';
-import { Pool } from 'pg';
-import { PG_POOL } from '@/modules/infra/database/database.module';
+import { Kysely, Selectable, sql } from 'kysely';
+import { DB, KYSELY } from '@/modules/infra/database/kysely/kysely.module';
 
-interface OutboxRow {
-  id: number;
-  topic: string;
-  key: string | null;
-  payload_json: unknown;
-  job_id: string | null;
-  last_attempt_at?: Date | string | null;
-}
+type OutboxRow = Selectable<DB['outbox']>;
+type OutboxId = OutboxRow['id'];
 
 @Injectable()
 export class OutboxRepository {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(@Inject(KYSELY) private readonly db: Kysely<DB>) {}
 
   /**
    * Insert an event into the outbox table (for async dispatch).
@@ -24,70 +18,64 @@ export class OutboxRepository {
     jobId: string;
     topic: string;
     payload: unknown;
-  }): Promise<number | null> {
+  }): Promise<OutboxId | null> {
     const { jobId, topic, payload } = params;
 
     const idempotencyKey = jobId;
 
-    const sql = `
-    INSERT INTO outbox (job_id, topic, key, payload_json, idempotency_key)
-    VALUES (
-      $1,
-      $2,
-      $3,
-      jsonb_set($4::jsonb, '{outboxCreatedAt}', to_jsonb(now()), true),
-      $5
-    )
-    ON CONFLICT (topic, idempotency_key)
-    DO NOTHING
-    RETURNING id
-  `;
+    const result = await sql<{ id: OutboxId }>`
+      INSERT INTO outbox (job_id, topic, key, payload_json, idempotency_key)
+      VALUES (
+        ${jobId},
+        ${topic},
+        ${jobId},
+        jsonb_set(${JSON.stringify(payload ?? {})}::jsonb, '{outboxCreatedAt}', to_jsonb(now()), true),
+        ${idempotencyKey}
+      )
+      ON CONFLICT (topic, idempotency_key)
+      DO NOTHING
+      RETURNING id
+    `.execute(this.db);
 
-    const { rows } = await this.pool.query<{ id: number }>(sql, [
-      jobId,
-      topic,
-      jobId, // key = jobId
-      JSON.stringify(payload ?? {}),
-      idempotencyKey,
-    ]);
-
-    return rows[0]?.id ?? null;
+    return result.rows[0]?.id ?? null;
   }
   async lockPendingBatch(limit: number): Promise<OutboxRow[]> {
-    const sql = `
+    const result = await sql<OutboxRow>`
       UPDATE outbox
       SET status = 'publishing',
           last_attempt_at = now()
       WHERE id IN (
         SELECT id
         FROM outbox
-      WHERE status IN ('pending', 'failed')
+        WHERE status IN ('pending', 'failed')
           AND next_attempt_at <= now()
         ORDER BY next_attempt_at, id
-        LIMIT $1
-          FOR UPDATE SKIP LOCKED
+        LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
       )
-      RETURNING id, topic, key, payload_json, job_id, last_attempt_at
-    `;
-    const { rows } = await this.pool.query<OutboxRow>(sql, [limit]);
-    return rows;
+      RETURNING *
+    `.execute(this.db);
+
+    return result.rows;
   }
 
-  async markPublished(id: number) {
-    const sql = `
+  async markPublished(id: OutboxId): Promise<OutboxRow | null> {
+    const result = await sql<OutboxRow>`
       UPDATE outbox
       SET status = 'published',
           published_at = now()
-      WHERE id = $1
-    `;
-    await this.pool.query(sql, [id]);
+      WHERE id = ${id}
+      RETURNING *
+    `.execute(this.db);
+
+    return result.rows[0] ?? null;
   }
 
-  async markFailed(id: number, err: unknown) {
+  async markFailed(id: OutboxId, err: unknown): Promise<OutboxRow | null> {
     const message =
       err instanceof Error ? err.message : typeof err === 'string' ? err : JSON.stringify(err);
 
-    const sql = `
+    const result = await sql<OutboxRow>`
       UPDATE outbox
       SET
         retry_count     = retry_count + 1,
@@ -95,15 +83,17 @@ export class OutboxRepository {
                             WHEN retry_count + 1 >= 5 THEN 'dead_lettered'
                             ELSE 'failed'
           END,
-        last_error      = $2,
+        last_error      = ${message},
         last_attempt_at = now(),
         next_attempt_at = CASE
                             WHEN retry_count + 1 >= 5
                               THEN next_attempt_at      -- dead_lettered면 더 이상 안 씀
                             ELSE now() + (interval '30 seconds' * (retry_count + 1))
           END
-      WHERE id = $1
-    `;
-    await this.pool.query(sql, [id, message]);
+      WHERE id = ${id}
+      RETURNING *
+    `.execute(this.db);
+
+    return result.rows[0] ?? null;
   }
 }

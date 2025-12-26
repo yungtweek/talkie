@@ -1,29 +1,36 @@
 // src/modules/users/users.repository.ts
 import { Inject, Injectable } from '@nestjs/common';
-// import * as pg from 'pg';
+import { Kysely, sql } from 'kysely';
 import { UserRow } from '@/modules/users/user.zod';
-import { Pool } from 'pg';
-import { PG_POOL } from '@/modules/infra/database/database.module';
+import { DB, KYSELY } from '@/modules/infra/database/kysely/kysely.module';
 
 @Injectable()
 export class UsersRepository {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(@Inject(KYSELY) private readonly db: Kysely<DB>) {}
 
   async findByIdentifierAndPwd(
     identifier: string,
     password: string,
   ): Promise<UserRow | null> {
-    const sql = `
-      SELECT id, username, email, pwd_shadow, public_ns, created_at, updated_at
-      FROM users
-      WHERE (username = $1 OR (email IS NOT NULL AND email = $1))
-        AND pwd_shadow = $2
-      LIMIT 1
-    `;
+    const row = await this.db
+      .selectFrom('users')
+      .select([
+        'id',
+        'username',
+        'email',
+        'public_ns',
+        sql`created_at::text`.$castTo<string>().as('created_at'),
+        sql`updated_at::text`.$castTo<string>().as('updated_at'),
+      ])
+      .where(eb =>
+        eb.and([
+          eb('pwd_shadow', '=', password),
+          eb.or([eb('username', '=', identifier), eb('email', '=', identifier)]),
+        ]),
+      )
+      .limit(1)
+      .executeTakeFirst();
 
-    const result = await this.pool.query<UserRow>(sql, [identifier, password]);
-    const rows: UserRow[] = result.rows;
-
-    return rows.length > 0 ? rows[0] : null;
+    return row ?? null;
   }
 }

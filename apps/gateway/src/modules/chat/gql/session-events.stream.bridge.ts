@@ -135,8 +135,14 @@ export class SessionEventsStreamBridge implements OnModuleInit, OnModuleDestroy 
   /**
    * Signal the polling loop to stop and close the Redis connection gracefully.
    */
-  onModuleDestroy() {
+  async onModuleDestroy() {
     this.running = false;
-    this.redis.disconnect();
+    try {
+      await this.redis.quit();
+    } catch {
+      // ignore quit errors and force disconnect
+    } finally {
+      this.redis.disconnect();
+    }
   }
 }

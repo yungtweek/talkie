@@ -55,6 +55,10 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async pollAndPublish() {
+    await this.pollAndPublishOnce();
+  }
+
   private async pollAndPublishOnce() {
     if (this.isShuttingDown) return;
 

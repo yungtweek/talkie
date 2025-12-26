@@ -90,6 +90,33 @@ export const FileMetadataUpsertZ = z
   });
 export type FileMetadataUpsert = z.infer<typeof FileMetadataUpsertZ>;
 
+// --- Index status updates (worker/gateway) -----------------------------------
+export const UpdateIndexStatusZ = z.object({
+  file_id: z.uuid(),
+  chunk_count: z.number().int().optional().nullable(),
+  embedding_model: z.string().optional().nullable(),
+  indexed_at: z.coerce.date().optional().nullable(),
+  vectorized_at: z.coerce.date().optional().nullable(),
+  meta: z.record(z.string(), z.unknown()).optional().nullable(),
+  status: FileStatusZ.optional(),
+});
+export type UpdateIndexStatusInput = z.infer<typeof UpdateIndexStatusZ>;
+
+export const UpdateIndexStatusByKeyZ = FileMetadataRegisterZ.pick({
+  bucket: true,
+  key: true,
+}).extend({
+  size: z.number().int().positive().optional().nullable(),
+  etag: z.string().min(1).optional().nullable(),
+  status: FileStatusZ.optional(),
+  chunkCount: z.number().int().optional().nullable(),
+  embeddingModel: z.string().optional().nullable(),
+  indexedAt: z.coerce.date().optional().nullable(),
+  vectorizedAt: z.coerce.date().optional().nullable(),
+  meta: z.record(z.string(), z.unknown()).optional().nullable(),
+});
+export type UpdateIndexStatusByKeyInput = z.infer<typeof UpdateIndexStatusByKeyZ>;
+
 // NOTE: createZodDto requires a ZodObject, not a union. Use the common base for implements/shape.
 export class FileMetadataZDto extends createZodDto(BaseMetaZ) {}
 export class FileMetadataRegisterZDto extends createZodDto(FileMetadataRegisterZ) {}
