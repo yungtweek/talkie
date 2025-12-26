@@ -409,6 +409,8 @@ class RagChainStreamEventTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.citations[0]["chunk_id"], "c1")
 
         expected = {
+            "rag_search_call.in_progress",
+            "rag_search_call.completed",
             "rag_retrieve.in_progress",
             "rag_retrieve.completed",
             "rag_rerank.in_progress",

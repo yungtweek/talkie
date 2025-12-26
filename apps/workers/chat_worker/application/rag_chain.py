@@ -387,7 +387,22 @@ class RagPipeline:
         else:
             return WeaviateHybridRetriever(ctx)
 
+    async def stage_search_call_start(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        logger.debug("[RAG] stage_search_call_start")
+        state = self._ensure_state(inputs)
+        stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
+        state.stream_ctx = stream_ctx
+        state.extra.setdefault("search_call_started_at", monotonic())
+        if stream_ctx.get("has_stream"):
+            await emit_search_event(
+                stream_ctx,
+                "rag_search_call.in_progress",
+                query=state.question,
+            )
+        return state
+
     async def stage_retrieve(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        logger.debug("[RAG] stage_retrieve")
         state = self._ensure_state(inputs)
         rag_cfg = state.rag or {}
         stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
@@ -714,18 +729,45 @@ class RagPipeline:
         state.prompt = prompt_value
         return state
 
+    async def stage_search_call_end(self, inputs: RagState | Dict[str, Any]) -> RagState:
+        state = self._ensure_state(inputs)
+        stream_ctx = state.stream_ctx or stream_context({"stream": state.stream})
+        state.stream_ctx = stream_ctx
+        hits = len(
+            state.compressed_docs
+            or state.mmr_docs
+            or state.reranked_docs
+            or state.docs
+            or []
+        )
+        started_at = state.extra.get("search_call_started_at")
+        took_ms = None
+        if isinstance(started_at, (int, float)):
+            took_ms = int((monotonic() - started_at) * 1000)
+        if stream_ctx.get("has_stream"):
+            await emit_search_event(
+                stream_ctx,
+                "rag_search_call.completed",
+                query=state.question,
+                hits=hits,
+                took_ms=took_ms,
+            )
+        return state
+
     def build(self):
         """
         Create the final RAG chain (prompt).
         Injects context via a retriever step.
         """
         return (
-            RunnableLambda(self.stage_retrieve)
+            RunnableLambda(self.stage_search_call_start)
+            | RunnableLambda(self.stage_retrieve)
             | RunnableLambda(self.stage_rerank)
             | RunnableLambda(self.stage_mmr)
             | RunnableLambda(self.stage_compress)
             | RunnableLambda(self.stage_join_context)
             | RunnableLambda(self.stage_prompt)
+            | RunnableLambda(self.stage_search_call_end)
         )
 
 def make_rag_chain(

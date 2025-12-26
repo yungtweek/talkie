@@ -5,7 +5,12 @@ from typing import Literal, Optional
 from chat_worker.application.dto.common import MyBaseModel
 
 
-RagSearchEventType = Literal["rag_retrieve.in_progress", "rag_retrieve.completed"]
+RagSearchEventType = Literal[
+    "rag_retrieve.in_progress",
+    "rag_retrieve.completed",
+    "rag_search_call.in_progress",
+    "rag_search_call.completed",
+]
 RagStageEventType = Literal[
     "rag_rerank.in_progress",
     "rag_rerank.completed",
