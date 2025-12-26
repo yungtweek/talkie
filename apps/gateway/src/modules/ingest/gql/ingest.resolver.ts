@@ -56,12 +56,12 @@ export class IngestResolver {
     return {
       id: r.id,
       filename: r.filename,
-      contentType: r.content_type as string,
-      size: r.size as number,
+      contentType: r.content_type ?? 'application/octet-stream',
+      size: Number(r.size ?? 0),
       status: r.status as FileStatusValue,
       visibility: r.visibility,
-      uploadedAt: new Date(r.uploaded_at as string),
-      createdAt: new Date(r.created_at),
+      uploadedAt: r.uploaded_at ?? r.created_at ?? new Date(),
+      createdAt: r.created_at ?? r.uploaded_at ?? new Date(),
     };
   };
 

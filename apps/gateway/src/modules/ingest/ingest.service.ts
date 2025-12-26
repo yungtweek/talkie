@@ -86,6 +86,7 @@ export class IngestService {
         throw new Error(`File not found: ${bucket}/${key}`);
       }
       const { id: fileId } = file;
+      const visibility = (file.visibility ?? FileVisibility.Private) as FileVisibilityValue;
       const jobId = crypto.randomUUID();
       const payload = {
         jobId: jobId,
@@ -105,7 +106,7 @@ export class IngestService {
           filename: file.filename,
           size: size,
           status: parsedStatus,
-          visibility: file.visibility,
+          visibility: visibility,
           uploadedAt: updatedAt ?? new Date(),
           createdAt: updatedAt ?? new Date(),
         },

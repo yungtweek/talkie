@@ -3,7 +3,7 @@ import { createZodDto } from 'nestjs-zod';
 import { FileStatusZ, FileVisibilityZ } from '@talkie/types-zod';
 
 const MAX_BYTES = 50 * 1024 * 1024;
-const CT_ALLOWED = /^(image\/|application\/pdf|text\/plain)/;
+const CT_ALLOWED = /^(image\/|application\/pdf|text\/plain|text\/markdown)/;
 
 // --- Base & State-based Schemas -------------------------------------------------
 export const BaseMetaZ = z.object({
