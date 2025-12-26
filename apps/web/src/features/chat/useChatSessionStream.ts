@@ -149,7 +149,7 @@ export function useChatSessionStream(sessionId: string | null) {
         openChatStream(jobId, {
           onText: chunk => updateStream(chunk, jobId),
           onSources: sources => updateSources(sources, jobId),
-          onRagSearch: (status, payload) => updateRagSearch(jobId, status, payload),
+          onRagSearch: (meta, payload) => updateRagSearch(jobId, meta, payload),
           onDone: () => {
             hasMeta.current = false;
             markStreamDone(jobId);

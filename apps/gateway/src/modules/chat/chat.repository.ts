@@ -174,23 +174,151 @@ export class ChatRepository {
               SELECT NULLIF(
                 jsonb_strip_nulls(
                   jsonb_build_object(
-                    'inProgress',
-                    (
-                      SELECT je.payload
-                      FROM job_events je
-                      WHERE je.job_id = cm.job_id
-                        AND je.event = 'rag_retrieve.in_progress'
-                      ORDER BY je.created_at DESC
-                      LIMIT 1
+                    'wrapper',
+                    NULLIF(
+                      jsonb_strip_nulls(
+                        jsonb_build_object(
+                          'searchCall',
+                          NULLIF(
+                            jsonb_strip_nulls(
+                              jsonb_build_object(
+                                'inProgress',
+                                (
+                                  SELECT je.payload
+                                  FROM job_events je
+                                  WHERE je.job_id = cm.job_id
+                                    AND je.event = 'rag_search_call.in_progress'
+                                  ORDER BY je.created_at DESC
+                                  LIMIT 1
+                                ),
+                                'completed',
+                                (
+                                  SELECT je.payload
+                                  FROM job_events je
+                                  WHERE je.job_id = cm.job_id
+                                    AND je.event = 'rag_search_call.completed'
+                                  ORDER BY je.created_at DESC
+                                  LIMIT 1
+                                )
+                              )
+                            ),
+                            '{}'::jsonb
+                          )
+                        )
+                      ),
+                      '{}'::jsonb
                     ),
-                    'completed',
-                    (
-                      SELECT je.payload
-                      FROM job_events je
-                      WHERE je.job_id = cm.job_id
-                        AND je.event = 'rag_retrieve.completed'
-                      ORDER BY je.created_at DESC
-                      LIMIT 1
+                    'stages',
+                    NULLIF(
+                      jsonb_strip_nulls(
+                        jsonb_build_object(
+                          'retrieve',
+                          NULLIF(
+                            jsonb_strip_nulls(
+                              jsonb_build_object(
+                                'inProgress',
+                                (
+                                  SELECT je.payload
+                                  FROM job_events je
+                                  WHERE je.job_id = cm.job_id
+                                    AND je.event = 'rag_retrieve.in_progress'
+                                  ORDER BY je.created_at DESC
+                                  LIMIT 1
+                                ),
+                                'completed',
+                                (
+                                  SELECT je.payload
+                                  FROM job_events je
+                                  WHERE je.job_id = cm.job_id
+                                    AND je.event = 'rag_retrieve.completed'
+                                  ORDER BY je.created_at DESC
+                                  LIMIT 1
+                                )
+                              )
+                            ),
+                            '{}'::jsonb
+                          ),
+                          'rerank',
+                          NULLIF(
+                            jsonb_strip_nulls(
+                              jsonb_build_object(
+                                'inProgress',
+                                (
+                                  SELECT je.payload
+                                  FROM job_events je
+                                  WHERE je.job_id = cm.job_id
+                                    AND je.event = 'rag_rerank.in_progress'
+                                  ORDER BY je.created_at DESC
+                                  LIMIT 1
+                                ),
+                                'completed',
+                                (
+                                  SELECT je.payload
+                                  FROM job_events je
+                                  WHERE je.job_id = cm.job_id
+                                    AND je.event = 'rag_rerank.completed'
+                                  ORDER BY je.created_at DESC
+                                  LIMIT 1
+                                )
+                              )
+                            ),
+                            '{}'::jsonb
+                          ),
+                          'mmr',
+                          NULLIF(
+                            jsonb_strip_nulls(
+                              jsonb_build_object(
+                                'inProgress',
+                                (
+                                  SELECT je.payload
+                                  FROM job_events je
+                                  WHERE je.job_id = cm.job_id
+                                    AND je.event = 'rag_mmr.in_progress'
+                                  ORDER BY je.created_at DESC
+                                  LIMIT 1
+                                ),
+                                'completed',
+                                (
+                                  SELECT je.payload
+                                  FROM job_events je
+                                  WHERE je.job_id = cm.job_id
+                                    AND je.event = 'rag_mmr.completed'
+                                  ORDER BY je.created_at DESC
+                                  LIMIT 1
+                                )
+                              )
+                            ),
+                            '{}'::jsonb
+                          ),
+                          'compress',
+                          NULLIF(
+                            jsonb_strip_nulls(
+                              jsonb_build_object(
+                                'inProgress',
+                                (
+                                  SELECT je.payload
+                                  FROM job_events je
+                                  WHERE je.job_id = cm.job_id
+                                    AND je.event = 'rag_compress.in_progress'
+                                  ORDER BY je.created_at DESC
+                                  LIMIT 1
+                                ),
+                                'completed',
+                                (
+                                  SELECT je.payload
+                                  FROM job_events je
+                                  WHERE je.job_id = cm.job_id
+                                    AND je.event = 'rag_compress.completed'
+                                  ORDER BY je.created_at DESC
+                                  LIMIT 1
+                                )
+                              )
+                            ),
+                            '{}'::jsonb
+                          )
+                        )
+                      ),
+                      '{}'::jsonb
                     )
                   )
                 ),

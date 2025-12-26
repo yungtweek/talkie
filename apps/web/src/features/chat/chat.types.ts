@@ -1,4 +1,36 @@
+import type {
+  RagEventMeta,
+  RagEventPayload,
+  RagEventStatus,
+  RagSearchSnapshot,
+  RagSearchKey,
+  RagStageKey,
+  RagStagePayload,
+  RagStageSnapshot,
+  RagWrapperKey,
+  RagWrapperSnapshot,
+} from '@talkie/events-contracts';
+
 export type Role = 'user' | 'assistant' | 'system';
+
+export type {
+  RagEventMeta,
+  RagEventPayload,
+  RagEventStatus,
+  RagSearchSnapshot,
+  RagSearchKey,
+  RagStageKey,
+  RagStagePayload,
+  RagStageSnapshot,
+  RagWrapperKey,
+  RagWrapperSnapshot,
+};
+
+export type RagLiveEvent = {
+  meta: RagEventMeta;
+  payload?: RagEventPayload;
+};
+
 
 export interface ChatEdge {
   cursor?: string | null;
@@ -15,10 +47,5 @@ export interface ChatNode {
   ragSearchJson?: string | null;
   jobId?: string | null;
   streamDone?: boolean;
-  ragSearch?: {
-    status: 'in_progress' | 'completed';
-    query?: string;
-    hits?: number;
-    tookMs?: number;
-  };
+  ragSearch?: RagLiveEvent;
 }

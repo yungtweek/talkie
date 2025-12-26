@@ -1,6 +1,7 @@
 import { chatStore, selectIsStreaming } from '@/features/chat/chat.store';
 import type { ChatEdge } from '@/features/chat/chat.types';
 import { safeJsonParse } from '@/lib/utils';
+import { RagEventMetaByType, RagStageEventType } from '@talkie/events-contracts';
 
 const baseState = chatStore.getState();
 
@@ -48,31 +49,48 @@ describe('updateRagSearch', () => {
             content: '',
             jobId,
             ragSearchJson: JSON.stringify({
-              inProgress: {
-                query: 'hello',
-                hits: 1,
+              stages: {
+                retrieve: {
+                  inProgress: {
+                    query: 'hello',
+                    hits: 1,
+                  },
+                  completed: null,
+                },
               },
-              completed: null,
             }),
           },
         },
       ],
     });
 
-    chatStore.getState().updateRagSearch(jobId, 'completed', { hits: 2, tookMs: 15 });
+    chatStore.getState().updateRagSearch(
+      jobId,
+      RagEventMetaByType[RagStageEventType.RETRIEVE_COMPLETED],
+      { hits: 2, tookMs: 15 },
+    );
 
     const updated = safeJsonParse<{
-      inProgress?: { query?: string; hits?: number } | null;
-      completed?: { hits?: number; tookMs?: number } | null;
+      stages?: {
+        retrieve?: {
+          inProgress?: { query?: string; hits?: number } | null;
+          completed?: { hits?: number; tookMs?: number } | null;
+        } | null;
+      } | null;
     }>(chatStore.getState().edges[0]?.node.ragSearchJson, null);
     expect(updated).toEqual({
-      inProgress: {
-        query: 'hello',
-        hits: 1,
-      },
-      completed: {
-        hits: 2,
-        tookMs: 15,
+      wrapper: {},
+      stages: {
+        retrieve: {
+          inProgress: {
+            query: 'hello',
+            hits: 1,
+          },
+          completed: {
+            hits: 2,
+            tookMs: 15,
+          },
+        },
       },
     });
   });
