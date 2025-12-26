@@ -22,6 +22,10 @@ class RagConfig(BaseModel):
 
     top_k: int = Field(default=10)
     mmq: int = Field(default=3)
+    mmr_k: Optional[int] = Field(default=None)
+    mmr_fetch_k: Optional[int] = Field(default=None)
+    mmr_lambda_mult: Optional[float] = Field(default=0.7)
+    mmr_similarity_threshold: Optional[float] = Field(default=0.85)
     max_context: int = Field(default=3500)
     search_type: WeaviateSearchType = Field(default=WeaviateSearchType.HYBRID)
     alpha: float = Field(default=0.6, description="Hybrid search weighting (0.0=bm25 only, 1.0=vector only)")

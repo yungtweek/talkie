@@ -4,6 +4,7 @@ from typing import Any, Mapping, Sequence
 import weaviate.classes as wvc
 from chat_worker.application.rag.document import items_to_docs
 from chat_worker.application.rag.helpers import log_items, resolve_context, normalize_query, kw_tokens_split
+from chat_worker.application.rag.helpers.chain import expand_queries, merge_docs
 from chat_worker.application.rag.retrievers.base import BaseRetriever, RagContext, RetrieveResult
 
 logger = getLogger("WeaviateHybridRetriever")
@@ -52,11 +53,57 @@ class WeaviateHybridRetriever(BaseRetriever):
         query: str,
         *,
         top_k: int | None = None,
+        mmq: int | None = None,
         filters: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> RetrieveResult:
         """
         Execute hybrid retrieval using Weaviate Collections API.
+
+        Args:
+            query: raw user query
+            top_k: optional override of result size
+            mmq: optional multi-query count (if >1, expand and merge results)
+            filters: optional backend filters
+
+        Returns:
+            RetrieveResult (if Base layer wraps results) or list[Document] for backward compatibility.
+        """
+        ctx = getattr(self, "_ctx", None)
+        if ctx is None:
+            raise ValueError("RagContext is not set. Initialize WeaviateHybridRetriever with ctx=RagContext.")
+
+        mmq_eff = mmq if mmq is not None else getattr(ctx, "mmq", None)
+        try:
+            mmq_eff = int(mmq_eff) if mmq_eff is not None else None
+        except Exception:
+            mmq_eff = None
+
+        if mmq_eff is not None and mmq_eff > 1:
+            queries = expand_queries(query, mmq_eff)
+            logger.info("[RAG][hybrid] mmq enabled: mmq=%s queries=%s", mmq_eff, len(queries))
+            logger.debug("[RAG][hybrid] mmq variants=%s", queries)
+            docs_by_query = []
+            for q in queries:
+                res = self._invoke_single(q, top_k=top_k, filters=filters, **kwargs)
+                docs_by_query.append(list(res.get("docs") or []))
+            k = int(top_k or getattr(ctx, "default_top_k", 6) or 6)
+            max_hits = k * len(queries)
+            docs = merge_docs(docs_by_query, limit=max_hits)
+            return RetrieveResult(docs=docs, query=query, top_k=max_hits, filters=dict(filters) if filters else None)
+
+        return self._invoke_single(query, top_k=top_k, filters=filters, **kwargs)
+
+    def _invoke_single(
+        self,
+        query: str,
+        *,
+        top_k: int | None = None,
+        filters: Mapping[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> RetrieveResult:
+        """
+        Execute a single-query hybrid retrieval using Weaviate Collections API.
 
         Args:
             query: raw user query
@@ -71,7 +118,7 @@ class WeaviateHybridRetriever(BaseRetriever):
             raise ValueError("RagContext is not set. Initialize WeaviateHybridRetriever with ctx=RagContext.")
 
         # Pull dependencies from context (stateless retriever)
-        client, collection_name, text_key, k, nf = resolve_context(ctx, top_k, filters)
+        client, collection_name, text_key, k, _mmq, nf = resolve_context(ctx, top_k, filters)
         embeddings = ctx.embeddings
         base_alpha_ctx = float(getattr(ctx, "alpha", 0.5) or 0.5)
         s = getattr(ctx, "settings", None)

@@ -23,6 +23,7 @@ def create_retriever(
     text_key: str = "text",
     alpha: float = 0.5,
     default_top_k: int = 6,
+    mmq: int | None = None,
 ) -> BaseRetriever:
     """
     Factory for retrievers.
@@ -42,6 +43,7 @@ def create_retriever(
         text_key=text_key,
         alpha=alpha,
         default_top_k=default_top_k,
+        mmq=mmq,
     )
     retriever = cls(ctx)
     return retriever
